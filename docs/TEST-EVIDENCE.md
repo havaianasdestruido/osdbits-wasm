@@ -92,7 +92,7 @@ vite v7.3.7 building client environment for production...
 ✓ 17 modules transformed.
 dist/index.html                  4.35 kB │ gzip:  1.54 kB
 dist/assets/index-*.css          5.11 kB │ gzip:  1.87 kB
-dist/assets/index-*.js          53.43 kB │ gzip: 18.56 kB │ map: 185.28 kB
+dist/assets/index-*.js          53.75 kB │ gzip: 18.65 kB │ map: 185.77 kB
 ✓ built in 329ms
 ```
 
