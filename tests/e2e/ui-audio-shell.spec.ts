@@ -84,8 +84,14 @@ test("Phases 6, 8 & 9 E2E: single-click Start OSDSYS + AudioContext unlock, Mode
   await page.keyboard.press("Enter");
   await expect(page.locator("#menu-screen-title")).toHaveText("System Configuration");
 
-  // Pointer-click "Clock Adjustment" (index 0) -> opens 6-field clock editor bar
-  await page.click('#menu-items-panel button[data-menu-index="0"]');
+  // Pointer-click "Clock Adjustment" (index 0) -> opens 6-field clock editor bar.
+  // The rows fade in during the 90-frame open choreography, but the core ignores
+  // input until it finishes (`menu.c:0x227D08`), so the shell keeps them disabled:
+  // `click()` therefore waits for the row to become clickable instead of dropping
+  // a click that lands inside the transition window.
+  const clockAdjustmentRow = page.locator('#menu-items-panel button[data-menu-index="0"]');
+  await expect(clockAdjustmentRow).toBeEnabled();
+  await clockAdjustmentRow.click();
   await expect(page.locator("#clock-editor-bar")).toBeVisible();
   const initialYear = await page.locator("#clock-editor-bar .clock-field-chip").first().textContent();
   await page.keyboard.press("ArrowUp");

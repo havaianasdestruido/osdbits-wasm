@@ -25,6 +25,7 @@ import {
   WasmSimulationBridge,
   type FrameInspectionSnapshot,
   type MenuActionName,
+  type MenuUiSnapshot,
   type OsdLanguageCode,
   type VisualModeName,
 } from "../wasm/bridge";
@@ -39,6 +40,14 @@ const MODE_PROVENANCE_DESCRIPTION: Record<VisualModeName, string> = {
   menu:
     "Sourced Module U (menu.c / menuback.c / menuconfig.c / menutext.c); Browser & Version subscreens approximated.",
 };
+
+/** Stable DOM row for one Mode D menu entry (reused instead of re-created). */
+interface MenuItemNode {
+  button: HTMLButtonElement;
+  label: HTMLSpanElement;
+  value: HTMLSpanElement;
+  provenance: HTMLSpanElement;
+}
 
 function percentile(sorted: readonly number[], p: number): number {
   if (sorted.length === 0) return 0;
@@ -63,6 +72,7 @@ export class OsdbitsApp {
   private wasmStepTimesMs: number[] = [];
   private awaitingResetConfirm = false;
   private activeMenuSignature = "";
+  private menuItemNodes: MenuItemNode[] = [];
   private webGpuErrorReason: string | null = null;
 
   private readonly rootEl: HTMLElement;
@@ -1083,15 +1093,29 @@ export class OsdbitsApp {
     if (snap.mode === "menu" && snap.menuUi) {
       menuHud?.classList.remove("hidden");
       const ui = snap.menuUi;
+      // The core swallows menu input while its fade-in / 90-frame System
+      // Configuration choreography plays (`menu.c:0x227D08`). Mirror that here so
+      // pointer clicks are never silently dropped: rows only become clickable
+      // once the core would actually accept the confirm.
+      const interactive = ui.interactive;
       const titleEl = document.getElementById("menu-screen-title");
       const clockEl = document.getElementById("menu-clock-readout");
       if (titleEl) titleEl.textContent = ui.title;
       if (clockEl) clockEl.textContent = `${ui.date}  ${ui.time}`;
+      if (menuHud) menuHud.dataset.menuInteractive = String(interactive);
+      for (const id of ["menu-hint-confirm", "menu-hint-cancel", "menu-hint-options"]) {
+        const hint = document.getElementById(id) as HTMLButtonElement | null;
+        if (hint) {
+          hint.disabled = !interactive;
+          hint.setAttribute("aria-disabled", String(!interactive));
+        }
+      }
 
-      // Avoid rebuilding buttons every frame unless selection/screen/values changed
+      // Avoid touching the DOM every frame unless screen/selection/values changed
       const sig = JSON.stringify({
         s: ui.screen,
-        items: ui.items.map((x) => [x.label, x.value, x.selected]),
+        i: interactive,
+        items: ui.items.map((x) => [x.label, x.value, x.selected, x.provenance]),
         cf: ui.clockFields,
         cc: ui.clockCursor,
       });
@@ -1101,8 +1125,9 @@ export class OsdbitsApp {
         const clockBar = document.getElementById("clock-editor-bar");
 
         if (itemsPanel) {
-          itemsPanel.innerHTML = "";
+          itemsPanel.dataset.menuInteractive = String(interactive);
           if (ui.screen === "browser-approx") {
+            this.menuItemNodes = [];
             itemsPanel.innerHTML = `
               <div class="menu-item-btn selected">
                 <span>Memory Card / Disc Browser (Clean-Room Inspector): ${snap.orbs} active RTC orbs. Press Esc / Back to return.</span>
@@ -1110,6 +1135,7 @@ export class OsdbitsApp {
               </div>
             `;
           } else if (ui.screen === "version-approx") {
+            this.menuItemNodes = [];
             itemsPanel.innerHTML = `
               <div class="menu-item-btn selected">
                 <span>osdbits-wasm Clean-Room Build • WASM ABI v${this.bridge.abiVersion} • Zero Sony ROM bytes</span>
@@ -1117,32 +1143,7 @@ export class OsdbitsApp {
               </div>
             `;
           } else {
-            ui.items.forEach((item, idx) => {
-              const btn = document.createElement("button");
-              btn.type = "button";
-              btn.className = `menu-item-btn ${item.selected ? "selected" : ""}`;
-              btn.dataset.menuIndex = String(idx);
-              btn.innerHTML = `
-                <span>${item.label}</span>
-                <span class="menu-item-right">
-                  ${item.value ? `<span class="menu-item-val">${item.value}</span>` : ""}
-                  <span class="prov-pill ${item.provenance}">${item.provenance}</span>
-                </span>
-              `;
-              btn.addEventListener("click", () => {
-                // Move selection to clicked index and confirm!
-                const curIdx = ui.items.findIndex((x) => x.selected);
-                if (curIdx >= 0 && curIdx !== idx) {
-                  const dir: MenuActionName = idx > curIdx ? "down" : "up";
-                  const steps = Math.abs(idx - curIdx);
-                  for (let s = 0; s < steps; s++) {
-                    this.bridge.dispatchMenuAction(dir);
-                  }
-                }
-                this.handleMenuAction("confirm");
-              });
-              itemsPanel.appendChild(btn);
-            });
+            this.syncMenuItemNodes(itemsPanel, ui.items, interactive);
           }
         }
 
@@ -1155,8 +1156,13 @@ export class OsdbitsApp {
               chip.type = "button";
               chip.className = `clock-field-chip ${ui.clockCursor === fIdx ? "active" : ""}`;
               chip.textContent = val;
+              chip.disabled = !interactive;
               chip.addEventListener("click", () => {
-                const diff = fIdx - ui.clockCursor;
+                const cur = this.lastSnapshot?.menuUi;
+                if (!cur || !cur.interactive) {
+                  return;
+                }
+                const diff = fIdx - cur.clockCursor;
                 const dir: MenuActionName = diff > 0 ? "right" : "left";
                 for (let k = 0; k < Math.abs(diff); k++) {
                   this.bridge.dispatchMenuAction(dir);
@@ -1174,6 +1180,81 @@ export class OsdbitsApp {
     } else {
       menuHud?.classList.add("hidden");
     }
+  }
+
+  /**
+   * Reuses one button per Mode D menu row instead of re-creating the whole list.
+   *
+   * The list used to be rebuilt whenever any value changed (the clock readout
+   * ticks once per second), which meant a mousedown/mouseup pair could straddle a
+   * re-render: the click then lands on the panel instead of the button and is
+   * silently dropped. Stable nodes also let us mirror the core's input gate via
+   * the `disabled` attribute, so controls are only clickable once the core will
+   * actually accept the confirm.
+   */
+  private syncMenuItemNodes(
+    panel: HTMLElement,
+    items: MenuUiSnapshot["items"],
+    interactive: boolean,
+  ): void {
+    if (this.menuItemNodes.length !== items.length) {
+      panel.innerHTML = "";
+      this.menuItemNodes = items.map((_, idx) => this.createMenuItemNode(idx));
+      for (const node of this.menuItemNodes) {
+        panel.appendChild(node.button);
+      }
+    }
+    items.forEach((item, idx) => {
+      const node = this.menuItemNodes[idx];
+      if (!node) {
+        return;
+      }
+      node.label.textContent = item.label;
+      node.value.textContent = item.value;
+      node.value.hidden = item.value.length === 0;
+      node.provenance.textContent = item.provenance;
+      node.provenance.className = `prov-pill ${item.provenance}`;
+      node.button.classList.toggle("selected", item.selected);
+      node.button.setAttribute("aria-current", String(item.selected));
+      node.button.disabled = !interactive;
+      node.button.setAttribute("aria-disabled", String(!interactive));
+    });
+  }
+
+  private createMenuItemNode(idx: number): MenuItemNode {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "menu-item-btn";
+    button.dataset.menuIndex = String(idx);
+    const label = document.createElement("span");
+    const right = document.createElement("span");
+    right.className = "menu-item-right";
+    const value = document.createElement("span");
+    value.className = "menu-item-val";
+    const provenance = document.createElement("span");
+    provenance.className = "prov-pill";
+    right.append(value, provenance);
+    button.append(label, right);
+    button.addEventListener("click", () => this.confirmMenuItem(idx));
+    return { button, label, value, provenance };
+  }
+
+  /** Moves the core cursor to `idx` and confirms, using the freshest snapshot. */
+  private confirmMenuItem(idx: number): void {
+    const ui = this.lastSnapshot?.menuUi;
+    if (!ui || !ui.interactive) {
+      // Rows are disabled while the core ignores input; purely defensive.
+      return;
+    }
+    const curIdx = ui.items.findIndex((x) => x.selected);
+    if (curIdx >= 0 && curIdx !== idx) {
+      const dir: MenuActionName = idx > curIdx ? "down" : "up";
+      const steps = Math.abs(idx - curIdx);
+      for (let step = 0; step < steps; step++) {
+        this.bridge.dispatchMenuAction(dir);
+      }
+    }
+    this.handleMenuAction("confirm");
   }
 
   private updateTelemetryDom(): void {

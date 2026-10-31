@@ -941,9 +941,12 @@ impl OsdSceneEngine {
                 Some(MenuScreenState::VersionApproxPanel) => "version-approx",
                 None => "none",
             };
-            s.push_str(",\"menuUi\":{\"screen\":\"");
-            s.push_str(screen_name);
-            s.push_str("\",\"date\":\"");
+            let _ = write!(
+                s,
+                ",\"menuUi\":{{\"screen\":\"{}\",\"interactive\":{},",
+                screen_name, ui.input_ready
+            );
+            s.push_str("\"date\":\"");
             Self::push_json_escaped(s, &ui.date_text);
             s.push_str("\",\"time\":\"");
             Self::push_json_escaped(s, &ui.time_text);
