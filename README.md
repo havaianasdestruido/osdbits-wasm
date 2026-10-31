@@ -1,4 +1,40 @@
-# OSDSYS reverse engineering
+# osdbits-wasm — PlayStation 2 OSDSYS Browser Reconstruction (`Rust/WASM + WebGPU`)
+
+`osdbits-wasm` is a browser-native, deterministic, persistent, clean-room reconstruction of the PlayStation 2 **OSDSYS** boot & menu visual experience, forked from [`aap/osdbits`](osdbits) while preserving 100% of the upstream Emotion Engine / VU1 / GS reverse-engineering sources and notes untouched.
+
+It runs **out-of-the-box with zero proprietary Sony BIOS or ROM assets**, combining a zero-dependency **Rust -> WebAssembly (`wasm32-unknown-unknown`)** simulation core with a multi-pass **WebGPU (TypeScript + WGSL)** renderer, procedural **Web Audio** soundscape, and read-back-verified **IndexedDB / OPFS** persistence.
+
+## Supported Visual Modes
+
+- **Mode A — Opening / Towers (`opening`)**: Deterministic `14x9` memory-card boot-history tower field over the `20x20` radial `HeightGrid`, `vucode_1` 3-light Gouraud shading, `DrawExtraBuf2(80)` temporal glow, 6 scrolling fog layers, 4 colored light orbs + 128-point trails, 5 per-cube 10-pass refractive glass cubes, legal-safe banner overlay, fly-up motion blur, and automatic transition into Mode D.
+- **Mode B — Indefinite Tower Idle (`idle`)**: Continuous atmospheric drift over the tower field at `z = 16`.
+- **Mode C — Illegal-Disc Red Scene (`illegal-disc`)**: `DrawRedFlare` 7 spinning 16-gon glow fans + 5 lens sprites, `DrawExtraBuf2(112)`, 128 falling crimson cloud patches, 5 red refractive glass cubes, and localized warning text (with explicit UI/inspector disclosure that retail hardware `osdBootParam` is unverified per `osdbits/opening.c:4262`).
+- **Mode D — Main Menu & System Configuration (`menu`)**: 7 RTC clock-driven orbs with 150-point decaying ribbons, `16x33` breathing `KABE` tunnel, 12 hexagonal crystal clock rods (`MeshDrawRodSplit` minute progress bar), 5 camera-space glass item cubes, 5-pass `MenuZoomBlur`, and full keyboard/pointer navigation (`System Configuration`, 6-field `Clock Adjustment`, provenance badges distinguishing `Sourced` vs. `Approximate` / `Extension` entries).
+- **Mode E — Live Customization & Persistence**: NTSC `60Hz` / PAL `50Hz`, `4:3` / `16:9` / `fit` framing, `0.5x..2.0x` internal resolution scale, memory-card tower simulator (`Captured`, `Full 126`, `Simulated 0..126 games`) + PRNG seed, pass toggles, `prefers-reduced-motion` support, audio mixer, optional client-side user-owned `BIOS`/`TEXIMAGE` import, JSON export/import, and two-step confirmed **Reset to Defaults**.
+
+## Quick Start
+
+```bash
+npm ci
+npm run dev       # Starts dev server on http://0.0.0.0:5173
+npm run build     # Builds production static bundle into dist/
+npm run check:all # Runs legal, Rust/fuzz, TS, Vitest, WGSL, WebGPU E2E, visual, perf & prod suites
+```
+
+Click **Start OSDSYS** once to synchronously unlock Web Audio (`AudioContext.resume()`) and enter the live WebGPU scene immediately.
+
+## Documentation
+
+- [Master Task Plan, Deferred Features & Known Limitations (`TODO.MD`)](TODO.MD)
+- [Phase 0 Reconnaissance & Baseline Audit (`docs/phase0-baseline.md`)](docs/phase0-baseline.md)
+- [WASM & WebGPU Single-Ownership Architecture (`docs/wasm-architecture.md`)](docs/wasm-architecture.md)
+- [Fidelity & Parameter Provenance Matrix (`docs/fidelity-and-provenance.md`)](docs/fidelity-and-provenance.md)
+- [Legal Policy, Clean-Room Assets & Optional Local Resource Import (`docs/legal-and-assets.md`)](docs/legal-and-assets.md)
+- [Testing, Visual Regression Tolerances & Deployment Guide (`docs/testing-and-deployment.md`)](docs/testing-and-deployment.md)
+
+---
+
+# Upstream Historical PS2 Reconstruction (`aap/osdbits`)
 
 Reverse engineering of the PS2 OSDSYS — the boot ROM's on-screen display
 (boot animation, browser, system configuration) — from a retail OSDSYS
