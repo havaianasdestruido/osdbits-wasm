@@ -1,0 +1,8 @@
+# Pinned toolchain. The sandbox this project was developed in has no rustup
+# and no access to static.rust-lang.org, so scripts/bootstrap-rust.sh assembles
+# the same version from npm packages; CI uses dtolnay/rust-toolchain.
+[toolchain]
+channel = "1.88.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

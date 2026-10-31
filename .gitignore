@@ -1,34 +1,35 @@
-# build artifacts
-*.o
-*.elf
-*.map
-*.lst
-*.dis
-core*
-
-# editors
-*.swp
-*.swo
-
-# local reference material, not for the repo
-*.p2s
-*.idb
-*.id0
-*.id1
-*.nam
-*.til
-*.annotated
-*.orig
-*.ai-reference
+# --- upstream (kept exactly as before) ---
 *.png
 !docs/opening.png
-osdsys_re/
-osdbits/gsdump/
-osdbits/gsdump-archive/
-
-# extracted Sony data - regenerate with tools/extract-res.py
+!docs/illegal.png
+!docs/menu.png
+!docs/config1.png
+!docs/config2.png
 osdbits/res/
 vucode_[0-9]
-
-# matching workspace build output
+osdbits/gsdump*
+osdsys_re/
 matching/build/
+
+# --- Rust ---
+crates/*/target/
+target/
+*.profraw
+*.profdata
+
+# --- wasm build artefacts ---
+web/public/osdbits_core.wasm
+web/dist/
+web/*.tsbuildinfo
+
+# --- Node ---
+node_modules/
+web/node_modules/
+web/coverage/
+
+# --- tests / evidence ---
+web/test-results/
+web/playwright-report/
+web/blob-report/
+web/.vite/
+*.log
