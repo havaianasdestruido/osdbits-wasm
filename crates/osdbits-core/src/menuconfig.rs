@@ -3,7 +3,7 @@
 //! and the 5 spinning config cubes (8-pass glass + `TEXCREFA` mask composite).
 
 use crate::assets::{AssetPack, TextureId};
-use crate::menu::{MenuScene, RING_BODY_COLOR, RING_COL_FIXED, RING_EDGE_COLOR};
+use crate::menu::{MenuScene, RING_BODY_COLOR, RING_COL_FIXED};
 use crate::opening::CubePassSpec;
 use crate::render_cmd::{
     DepthMode, FrameCommandBuffer, GpuVertex, GsBlendMode, RenderTargetId, SamplerWrap,
@@ -119,6 +119,10 @@ pub const CONFIG_CUBE_PASSES: [CubePassSpec; 8] = [
         v_speed: 0.0,
     },
 ];
+
+/// One shaded face of the simplified config cube: near and far vertex colours plus the four
+/// screen-space corners.
+type CubeFace = ([f32; 4], [f32; 4], [[f32; 2]; 4]);
 
 /// Per-cube live state (`0x27F090` entry: colour eased to selected `{0,150,200,128}` or plain `{100,100,100,128}`;
 /// `+0x20` size bias kicked by `-0.1` on confirm).
@@ -278,144 +282,173 @@ impl ConfigScene {
         // --- 1. 12 hexagonal glass clock rods on the ring ---
         let ring_center_x = screen_w * 0.5;
         let ring_center_y = screen_h * 0.5;
-        let ring_radius = 120.0f32 * (0.35 + 0.65 * self.rod_progress);
+        let ring_radius = 148.0f32 * (0.3 + 0.7 * self.rod_progress);
 
         for slot in 0..CFG_ROD_COUNT {
             let front = slot == (menu.ring_offset as usize % CFG_ROD_COUNT);
-            let ang = (slot as f32) * (std::f32::consts::TAU / 12.0) + 0.25;
-            let cx = ring_center_x + ang.cos() * ring_radius;
-            let cy = ring_center_y + ang.sin() * ring_radius * 0.82;
-            let tilt = (ang + 0.6).sin() * 0.55 + 0.18;
-            let rod_h = 96.0f32 * (0.55 + 0.45 * self.rod_progress);
-            let rod_w = 12.0f32;
-            let col = if front {
-                [167.0, 217.0, 255.0, alpha]
+            let ang = (slot as f32) * (std::f32::consts::TAU / 12.0) - std::f32::consts::FRAC_PI_2;
+            let (sa, ca) = ang.sin_cos();
+            let rod_len = 118.0f32 * (0.55 + 0.45 * self.rod_progress);
+            let rod_half_w = 7.5f32;
+            let progress = self.rod_progress;
+
+            // Radial placement: the base sits on the ring, the tip points outward. That is the
+            // clock-face layout (`CarouselMatrix` puts each rod 20 units out and spins it).
+            let base_r = ring_radius * (0.55 + 0.12 * progress);
+            let tip_r = base_r + rod_len;
+            let bx = ring_center_x + ca * base_r;
+            let by = ring_center_y + sa * base_r * 0.86;
+            let tx = ring_center_x + ca * tip_r;
+            let ty = ring_center_y + sa * tip_r * 0.86;
+            // Perpendicular offset for the rod's width.
+            let px = -sa * rod_half_w;
+            let py = ca * rod_half_w;
+
+            let body = if front {
+                // The front rod's bright minute segment (`{167, 217, 255}` at the cut).
+                [
+                    (167.0 / 128.0) * alpha,
+                    (217.0 / 128.0) * alpha,
+                    (255.0 / 128.0) * alpha,
+                    alpha,
+                ]
             } else {
                 [
-                    RING_BODY_COLOR[0] as f32 * 0.6,
-                    RING_BODY_COLOR[1] as f32 * 0.6,
-                    RING_BODY_COLOR[2] as f32 * 0.6,
-                    alpha * 0.8,
+                    (RING_BODY_COLOR[0] as f32 / 96.0) * alpha,
+                    (RING_BODY_COLOR[1] as f32 / 96.0) * alpha,
+                    (RING_BODY_COLOR[2] as f32 / 96.0) * alpha * 1.05,
+                    alpha,
                 ]
             };
-            let edge_col = [
-                RING_EDGE_COLOR[0] as f32 / 128.0,
-                RING_EDGE_COLOR[1] as f32 / 128.0,
-                RING_EDGE_COLOR[2] as f32 / 128.0,
-                alpha * 0.9,
-            ];
-
-            // Rod body quad (`MeshDrawRod` pass 4: near refraction onto the screen)
-            let dx = -ang.sin() * rod_w;
-            let dy = ang.cos() * rod_w;
-            let tx = (tilt.cos()) * rod_h * 0.5;
-            let ty = (tilt.sin()) * rod_h;
+            // The tip is dimmer than the base unless this is the bright front marker.
+            let dim = if front { 1.0 } else { 0.72 };
+            // A light gradient along the rod so it reads as a lit glass prism.
+            let tip_col = [body[0] * dim, body[1] * dim, body[2] * dim, alpha];
 
             cmd_buf.push_quad(
                 RenderTargetId::Screen,
-                TextureId::WorkBuf4,
+                // Flat glass: the rod's colour carries the read, so it must not sample the work
+                // buffer with whole-screen UVs (that pass needs screen-position UVs, which this
+                // simplified mesh does not produce). See docs/LIMITATIONS.md §5.
+                TextureId::WhiteDummy,
                 GsBlendMode::Additive,
                 SamplerWrap::Clamp,
                 DepthMode::AlwaysNoWrite,
                 128,
                 GpuVertex {
-                    pos: [cx - dx, cy - dy, 0.6, 1.0],
+                    pos: [bx + px, by + py, 0.6, 1.0],
                     uv: [0.0, 0.0],
-                    color: edge_col,
+                    color: body,
                 },
                 GpuVertex {
-                    pos: [cx + dx, cy + dy, 0.6, 1.0],
+                    pos: [bx - px, by - py, 0.6, 1.0],
                     uv: [1.0, 0.0],
-                    color: edge_col,
+                    color: body,
                 },
                 GpuVertex {
-                    pos: [cx - dx - tx, cy - dy - ty, 0.6, 1.0],
+                    pos: [tx + px * 0.55, ty + py * 0.55, 0.6, 1.0],
                     uv: [0.0, 1.0],
-                    color: col,
+                    color: tip_col,
                 },
                 GpuVertex {
-                    pos: [cx + dx - tx, cy + dy - ty, 0.6, 1.0],
+                    pos: [tx - px * 0.55, ty - py * 0.55, 0.6, 1.0],
                     uv: [1.0, 1.0],
-                    color: col,
+                    color: tip_col,
                 },
             );
         }
 
         // --- 2. 5 spinning glass config cubes ---
+        //
+        // Each cube is drawn as three stacked rhombi (top, left, right) whose shading comes from
+        // the eased per-cube colour, which is what makes the selected item read as the bright
+        // cyan-blue block and the rest as dim grey glass (`0x226BB8`'s colour ramp). The full
+        // eight-pass `0x22D2E8` chain needs the screen-position UVs this simplified mesh does not
+        // generate; see docs/LIMITATIONS.md §5.
         for (i, cube) in self.cubes.iter().enumerate() {
             let s = (0.35 + 0.65 * self.rod_progress) + cube.bias;
             let ang = ((self.cube_spin + (i as u32) * 7000) & 0xFFFF) as f32
                 * (std::f32::consts::TAU / 65536.0);
-            let cx = 260.0 + cube.pos[0] * 3.6;
-            let cy = screen_h * 0.5 + cube.pos[1] * 3.6;
-            let half = 22.0 * s.max(0.1);
+            let cx = 232.0 + cube.pos[0] * 4.2;
+            let cy = screen_h * 0.5 + cube.pos[1] * 4.2;
+            let half = 27.0 * s.max(0.15);
 
-            let (sin_a, cos_a) = (ang.sin(), ang.cos());
-            let sin_b = (ang * 1.3).sin();
-            let col = [
-                cube.color[0] as f32 / 128.0,
-                cube.color[1] as f32 / 128.0,
-                cube.color[2] as f32 / 128.0,
-                alpha * (cube.color[3] as f32 / 128.0),
+            let base = [
+                (cube.color[0] as f32 / 128.0) * alpha,
+                (cube.color[1] as f32 / 128.0) * alpha,
+                (cube.color[2] as f32 / 128.0) * alpha,
+                alpha,
             ];
-            let bright = [
-                (col[0] + 0.35).min(1.8),
-                (col[1] + 0.35).min(1.8),
-                (col[2] + 0.35).min(1.8),
-                col[3],
+            // Rotation drives how much of each face is visible.
+            let (sa, ca) = ang.sin_cos();
+            let (_, cb) = (ang * 1.7).sin_cos();
+            let face_w = half * (0.55 + 0.45 * ca.abs());
+            let face_h = half * (0.5 + 0.5 * cb.abs());
+            let top_lift = half * (0.55 + 0.25 * sa);
+
+            let faces: [CubeFace; 3] = [
+                // top face
+                (
+                    [base[0] * 1.35, base[1] * 1.35, base[2] * 1.45, base[3]],
+                    [base[0] * 1.6, base[1] * 1.6, base[2] * 1.75, base[3]],
+                    [
+                        [cx - face_w, cy - top_lift],
+                        [cx, cy - top_lift - face_h * 0.55],
+                        [cx + face_w, cy - top_lift],
+                        [cx, cy - top_lift + face_h * 0.55],
+                    ],
+                ),
+                // left face
+                (
+                    [base[0] * 0.85, base[1] * 0.9, base[2], base[3]],
+                    [base[0] * 0.5, base[1] * 0.55, base[2] * 0.65, base[3]],
+                    [
+                        [cx - face_w, cy - top_lift],
+                        [cx, cy - top_lift + face_h * 0.55],
+                        [cx - face_w, cy + face_h * 0.9],
+                        [cx, cy + face_h * 1.35],
+                    ],
+                ),
+                // right face
+                (
+                    [base[0], base[1], base[2], base[3]],
+                    [base[0] * 0.6, base[1] * 0.65, base[2] * 0.75, base[3]],
+                    [
+                        [cx, cy - top_lift + face_h * 0.55],
+                        [cx + face_w, cy - top_lift],
+                        [cx, cy + face_h * 1.35],
+                        [cx + face_w, cy + face_h * 0.9],
+                    ],
+                ),
             ];
 
-            // Cube faces: back 3 (darker), then front 3 (`CONFIG_CUBE_PASSES` 1..=4 / 6..=8)
-            let faces: [(f32, f32, [f32; 4]); 6] = [
-                // fake 3D box faces projected from rotation
-                (cx, cy - half * 0.45, bright),
-                (cx - half, cy + half * 0.25, col),
-                (cx + half, cy + half * 0.25, col),
-                (cx, cy, bright),
-                (cx - half * 1.4, cy + half * 0.9, col),
-                (cx + half * 1.4, cy + half * 0.9, col),
-            ];
-
-            for (k, (fx, fy, fc)) in faces.iter().enumerate() {
-                let hw = half * (0.92 + sin_a * 0.12);
-                let hh = half * (0.92 + cos_a * 0.12) * (0.6 + sin_b.abs() * 0.4);
-                let tex = if k % 2 == 0 {
-                    TextureId::WorkBuf4
-                } else {
-                    TextureId::ScreenCopy
-                };
-                let blend = if k < 3 {
-                    GsBlendMode::SourceAlpha
-                } else {
-                    GsBlendMode::Additive
-                };
-
+            for (near, far, corners) in faces {
                 cmd_buf.push_quad(
                     RenderTargetId::Screen,
-                    tex,
-                    blend,
+                    TextureId::WhiteDummy,
+                    GsBlendMode::SourceAlpha,
                     SamplerWrap::Clamp,
                     DepthMode::AlwaysNoWrite,
-                    if k < 3 { 116 } else { 64 },
+                    128,
                     GpuVertex {
-                        pos: [fx - hw, fy - hh, 0.55, 1.0],
+                        pos: [corners[0][0], corners[0][1], 0.5, 1.0],
                         uv: [0.0, 0.0],
-                        color: *fc,
+                        color: far,
                     },
                     GpuVertex {
-                        pos: [fx + hw, fy - hh, 0.55, 1.0],
+                        pos: [corners[2][0], corners[2][1], 0.5, 1.0],
                         uv: [1.0, 0.0],
-                        color: *fc,
+                        color: near,
                     },
                     GpuVertex {
-                        pos: [fx - hw, fy + hh, 0.55, 1.0],
+                        pos: [corners[1][0], corners[1][1], 0.5, 1.0],
                         uv: [0.0, 1.0],
-                        color: *fc,
+                        color: far,
                     },
                     GpuVertex {
-                        pos: [fx + hw, fy + hh, 0.55, 1.0],
+                        pos: [corners[3][0], corners[3][1], 0.5, 1.0],
                         uv: [1.0, 1.0],
-                        color: *fc,
+                        color: near,
                     },
                 );
             }

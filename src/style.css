@@ -40,6 +40,11 @@ body {
   image-rendering: auto;
 }
 
+/* A lost/unconfigured WebGPU canvas paints white; never let that be the whole page. */
+#osd-canvas[data-gpu-state='lost'] {
+  background: radial-gradient(ellipse at 50% 40%, #101c2e, #04070d 70%);
+}
+
 /* ---------------------------------------------------------------- HUD */
 
 .hud {

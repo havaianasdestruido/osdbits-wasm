@@ -506,68 +506,77 @@ impl MenuScene {
         }
     }
 
+    /// `DrawKabe` (`0x229358`, `menuback.c`): a 16-ribbon × 33-ring tube seen from *inside*.
+    ///
+    /// The retail wall is a 6000-unit cylinder around the camera, so the near rings project far
+    /// outside the frame and the far rings converge on the vanishing point, where the cap goes
+    /// black. Reproduced here in screen space: ring 0 starts beyond the frame edge and each
+    /// successive ring shrinks toward the centre while its brightness falls to zero.
     fn emit_kabe_tunnel(&self, cmd_buf: &mut FrameCommandBuffer, intensity: f32) {
+        if intensity <= 0.01 {
+            return;
+        }
         let screen_w = 640.0f32;
         let screen_h = 448.0f32;
         let cx = screen_w * 0.5;
         let cy = screen_h * 0.5;
-        let r_base = 260.0f32;
+        const RINGS: usize = 33;
+        const INNER: f32 = 30.0;
+        // The near rings must project well beyond the frame: the retail wall is a 6000-unit
+        // cylinder around the camera, so ring 0 is entirely off-screen.
+        const OUTER: f32 = 2600.0;
 
         for i in 0..16usize {
             let a0 = (i as f32) * (std::f32::consts::TAU / 16.0);
             let a1 = ((i + 1) as f32) * (std::f32::consts::TAU / 16.0);
-            let mut quad_pts = Vec::with_capacity(33 * 2);
+            let (s0, c0) = a0.sin_cos();
+            let (s1, c1) = a1.sin_cos();
 
-            for ring in 0..33usize {
-                let depth = (ring as f32) / 32.0;
-                let wave = 1.0 + ((self.frame as f32) * 0.11 + (ring as f32) * 5.12).sin() * 0.05;
-                let radius = r_base * (1.0 + depth * 2.8) * wave;
-                let alpha = (1.0 - depth).powi(2) * intensity;
-
-                let x0 = cx + radius * a0.cos();
-                let y0 = cy + radius * a0.sin();
-                let x1 = cx + radius * a1.cos();
-                let y1 = cy + radius * a1.sin();
-
-                // `KabeVertex` colours: near end bright, far end black
-                let p = ((32 - ring) as f32 / 32.0).powi(3);
-                let cr = (p * 230.0 / 32.0).clamp(0.0, 2.0);
-                let cg = (p * 260.0 / 32.0).clamp(0.0, 2.0);
-                let cb = (p * 260.0 / 32.0).clamp(0.0, 2.0);
-                let v = ring as f32 / 32.0 + self.kabe_phase;
-                let u0 = a0 / std::f32::consts::TAU * 3.0;
-
-                quad_pts.push(GpuVertex {
-                    pos: [x0, y0, 0.9, 1.0],
-                    uv: [u0 + self.kabe_phase, v],
-                    color: [cr, cg, cb, alpha],
-                });
-                quad_pts.push(GpuVertex {
-                    pos: [x1, y1, 0.9, 1.0],
-                    uv: [u0 + 0.1875 + self.kabe_phase, v],
-                    color: [cr, cg, cb, alpha],
-                });
+            let mut prev: Option<[GpuVertex; 2]> = None;
+            for ring in 0..RINGS {
+                let t = ring as f32 / (RINGS - 1) as f32;
+                // The travelling wave that makes the wall breathe (`KABE_WOBBLE`).
+                let wave = 1.0 + ((self.frame as f32) * 0.09 + ring as f32 * 0.62).sin() * 0.045;
+                let radius = (OUTER * (1.0 - t).powf(2.2) + INNER * t) * wave;
+                // Bright at the near end, black at the cap (`p = (32-i)^3 >> 10`).
+                let p = (1.0 - t).powf(2.4);
+                let shade = (p * 1.15).clamp(0.0, 1.0) * intensity;
+                let col = [shade * 0.92, shade * 0.97, shade, 1.0];
+                let v = t * 3.0 + self.kabe_phase;
+                let cur = [
+                    GpuVertex {
+                        pos: [cx + radius * c0, cy + radius * s0, 0.92, 1.0],
+                        uv: [self.kabe_phase, v],
+                        color: col,
+                    },
+                    GpuVertex {
+                        pos: [cx + radius * c1, cy + radius * s1, 0.92, 1.0],
+                        uv: [0.25 + self.kabe_phase, v],
+                        color: col,
+                    },
+                ];
+                if let Some(prev_ring) = prev {
+                    // Two triangles per quad; the strip continues across rings.
+                    let tris = [
+                        prev_ring[0],
+                        prev_ring[1],
+                        cur[0],
+                        prev_ring[1],
+                        cur[1],
+                        cur[0],
+                    ];
+                    cmd_buf.push_triangles(
+                        RenderTargetId::Screen,
+                        TextureId::TexcKabe,
+                        GsBlendMode::Opaque,
+                        SamplerWrap::Repeat,
+                        DepthMode::AlwaysWrite,
+                        128,
+                        &tris,
+                    );
+                }
+                prev = Some(cur);
             }
-
-            // Build triangle strip triangles between consecutive rings
-            let mut tris = Vec::with_capacity(32 * 6);
-            for ring in 0..32usize {
-                let l0 = quad_pts[ring * 2];
-                let r0 = quad_pts[ring * 2 + 1];
-                let l1 = quad_pts[(ring + 1) * 2];
-                let r1 = quad_pts[(ring + 1) * 2 + 1];
-                tris.extend_from_slice(&[l0, r0, l1, r0, r1, l1]);
-            }
-
-            cmd_buf.push_triangles(
-                RenderTargetId::Screen,
-                TextureId::TexcKabe,
-                GsBlendMode::Opaque,
-                SamplerWrap::Repeat,
-                DepthMode::AlwaysWrite,
-                128,
-                &tris,
-            );
         }
     }
 

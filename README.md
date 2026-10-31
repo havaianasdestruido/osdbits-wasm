@@ -119,7 +119,8 @@ Digital Output, Component Video Out, Language), and Version Information.
 ```bash
 cargo test --workspace      # 25 Rust tests (math, LZSS fuzz, pad parity, scenes, text)
 npm run typecheck           # strict TypeScript
-npx vitest run              # 24 tests: real WASM module, storage, audio gesture ordering
+npx vitest run              # 31 tests: real WASM module, storage, audio gesture ordering,
+                            #            and render-stream checks via a software rasterizer
 npm run test:e2e            # 11 Playwright tests in Chromium with a real WebGPU device
 ```
 

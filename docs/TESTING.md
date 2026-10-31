@@ -49,6 +49,25 @@ menu and emits `StBgmPlay`/`StSetReverbDepth`, the region-swapped pad drives the
 boot history clamps hostile values, garbage imports are rejected, and aggressive screen churn does
 not panic.
 
+## 2b. Render-stream tests (independent software rasterizer)
+
+```
+npx vitest run tests/unit/render.test.ts
+```
+
+Result: **7 passed**. The real WASM command stream is fed to
+`tests/support/software-raster.ts` — a separate implementation from the WebGPU renderer — which
+implements the GS blend modes, depth modes and CLAMP/REPEAT bilinear sampling. It verifies that the
+opening fills the frame with lit tower geometry, that the illegal-disc screen is red-dominant, that
+the menu's orb cluster is brighter than the vignetted border, that System Configuration composites
+blue over red, that the browser screen draws, that idle mode still renders after 900 frames, and
+that a full memory card produces more lit coverage than an empty one. PNG snapshots are written to
+`test-results/render/` (`opening`, `illegal`, `menu`, `system-config`, `browser`, `idle-900`,
+`idle-full-card`) for human inspection.
+
+This is the visual regression layer that the GPU limitation in §5 would otherwise leave empty: it
+validates composition and colour distribution, not pixel-exact GPU output.
+
 ## 3. Storage tests
 
 ```

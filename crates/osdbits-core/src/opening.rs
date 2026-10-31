@@ -69,7 +69,7 @@ pub const TOWER_LIGHT_COLORS: [Vec4; 4] = [
     [0.42, 0.46, 0.58, 0.0],
 ];
 
-pub const TOWER_AMBIENT: Vec4 = [0.22, 0.24, 0.30, 1.0];
+pub const TOWER_AMBIENT: Vec4 = [0.34, 0.37, 0.46, 1.0];
 
 /// 10-pass configuration for Opening glass cubes (`cubePasses[10]`, `osdbits/opening.c` line 1641).
 #[derive(Debug, Clone, Copy)]
@@ -718,7 +718,7 @@ impl OpeningScene {
                 // Distance from the field centre drives both brightness and colour: the
                 // retail field is brightest over the central cluster (towerGrid, sub_217e30).
                 let radial = ((tx * tx + ty * ty) / (190.0 * 190.0)).sqrt().min(1.0);
-                let center_boost = (1.0 - radial).powf(1.35) * 0.85 + 0.15;
+                let center_boost = (1.0 - radial).powf(1.15) * 0.95 + 0.22;
 
                 // 5 quads per column: near cap, +X side, -X side, +Y side, -Y side.
                 // Winding is chosen so the screen-space winding test below culls the back faces.

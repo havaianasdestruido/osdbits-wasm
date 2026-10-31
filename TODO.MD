@@ -109,10 +109,13 @@ Execution evidence for every `[x]` below: `docs/TESTING.md`.
 ## Phase 10 — QA
 - [x] `P10-001` — Rust unit/property/fuzz suites.
   - Evidence: `cargo test --workspace` → **25 passed**; `cargo clippy … -D warnings` clean; `cargo fmt --check` clean.
-- [x] `P10-002` — TypeScript unit + WASM + storage + audio suites.
-  - Evidence: `npx vitest run` → **24 passed** (9 WASM, 9 storage, 5 audio, plus the tokenizer/UI tests inside Rust).
+- [x] `P10-002` — TypeScript unit + WASM + storage + audio + render-stream suites.
+  - Evidence: `npx vitest run` → **31 passed** (9 WASM, 9 storage, 5 audio, 7 render-stream).
 - [!] `P10-003` — Playwright E2E + visual regression + endurance/performance.
   - **Executed and passing**: 11 E2E tests covering activation, rendering evidence, device-loss degradation, mode switching, menu flow, persistence across reload, keyboard/pause, resize, import rejection, ROMDIR import, reset.
+  - **Compensated**: `tests/unit/render.test.ts` runs an independent software rasterizer over the
+    real command stream, so composition/colour distributions are asserted without a GPU
+    (snapshots in `test-results/render/`).
   - **Blocked**: sustained GPU execution, pixel-based visual regression against reference captures, and frame-time percentile budgets. Root cause: this sandbox's Chromium destroys the WebGPU device after 2–4 frames; reproduced with a minimal clear-only loop across four flag sets (`docs/TESTING.md` §5). The app's degradation path is verified instead.
   - **Not run**: multi-engine (Firefox/WebKit) E2E — only Chromium is available here and only it exposes WebGPU.
 

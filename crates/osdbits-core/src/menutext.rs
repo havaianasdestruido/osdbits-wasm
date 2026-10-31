@@ -1018,11 +1018,17 @@ pub fn emit_ui(cmd_buf: &mut FrameCommandBuffer, ui: &OsdUi, menu: &MenuScene, p
                     pack,
                 );
             }
+            // World layout draws "Enter" on Cross, Japan on Circle (`docs/pad.md`).
+            let confirm_icon = if ui.settings.region_japan {
+                ICON_CIRCLE
+            } else {
+                ICON_CROSS
+            };
             draw_hint_bar(
                 cmd_buf,
                 &[
-                    (0, osd_string(lang, STR_ENTER)),
-                    (1, osd_string(lang, STR_OPTIONS)),
+                    (confirm_icon, osd_string(lang, STR_ENTER)),
+                    (ICON_TRIANGLE, osd_string(lang, STR_OPTIONS)),
                 ],
                 fade,
                 pack,
@@ -1048,18 +1054,6 @@ pub fn emit_ui(cmd_buf: &mut FrameCommandBuffer, ui: &OsdUi, menu: &MenuScene, p
                 1.0,
                 ui.base_scale,
                 pack,
-            );
-
-            // Page marker arrow (`\7o020` on FNTEXOSD)
-            draw_text_themed(
-                cmd_buf,
-                430,
-                label_y,
-                COL_DIM,
-                fade,
-                "\\7o020",
-                pack,
-                ui.base_scale,
             );
 
             if (ui.screen as u32) >= (ScreenMode::ClockEditor as u32) {
@@ -1140,6 +1134,23 @@ pub fn emit_ui(cmd_buf: &mut FrameCommandBuffer, ui: &OsdUi, menu: &MenuScene, p
                     ui.base_scale,
                     pack,
                 );
+                // The page marker (`\7o020`, the up/down chevrons) sits one space to the right of
+                // the label column, exactly where `0x227560` puts it.
+                let label_w =
+                    osd_text_width(osd_string(lang, CONFIG_ITEMS[ui.config_cursor]), 1.0, pack);
+                let gap = osd_text_width(" ", 1.0, pack);
+                draw_text_l(
+                    cmd_buf,
+                    RenderTargetId::Screen,
+                    430 + label_w / 2 + gap,
+                    label_y,
+                    COL_DIM,
+                    fade,
+                    "\u{7}o020",
+                    1.0,
+                    ui.base_scale,
+                    pack,
+                );
                 if ui.config_cursor == 0 {
                     emit_clock_row(cmd_buf, ui, value_y, false, pack, fade);
                 } else {
@@ -1158,12 +1169,22 @@ pub fn emit_ui(cmd_buf: &mut FrameCommandBuffer, ui: &OsdUi, menu: &MenuScene, p
                 }
             }
 
+            let confirm_icon = if ui.settings.region_japan {
+                ICON_CIRCLE
+            } else {
+                ICON_CROSS
+            };
+            let cancel_icon = if ui.settings.region_japan {
+                ICON_CROSS
+            } else {
+                ICON_CIRCLE
+            };
             let mut hints: Vec<(u8, &'static str)> = vec![
-                (1, osd_string(lang, STR_ENTER)),
-                (2, osd_string(lang, STR_BACK)),
+                (confirm_icon, osd_string(lang, STR_ENTER)),
+                (cancel_icon, osd_string(lang, STR_BACK)),
             ];
             if ui.screen == ScreenMode::SystemConfig && ui.config_cursor == 0 {
-                hints.push((4, osd_string(lang, STR_OPTIONS)));
+                hints.push((ICON_TRIANGLE, osd_string(lang, STR_OPTIONS)));
             }
             draw_hint_bar(cmd_buf, &hints, fade, pack);
         }
@@ -1247,10 +1268,11 @@ pub fn emit_ui(cmd_buf: &mut FrameCommandBuffer, ui: &OsdUi, menu: &MenuScene, p
             for slot in 0..21usize {
                 let col_i = slot % 3;
                 let row_i = slot / 3;
-                let x = 64 + (col_i as i32) * 184;
-                let y = 124 + (row_i as i32) * 24;
+                let x = 30 + (col_i as i32) * 204;
+                let y = 120 + (row_i as i32) * 22;
                 let count = ui.boot_history_play_counts[slot];
                 let label = format!("Slot {:02}: {:2} plays", slot + 1, count);
+                let label_scale = 0.72f32;
                 let col = if slot == ui.browser_slot {
                     COL_SELECTED
                 } else if count > 0 {
@@ -1266,7 +1288,7 @@ pub fn emit_ui(cmd_buf: &mut FrameCommandBuffer, ui: &OsdUi, menu: &MenuScene, p
                     col,
                     if slot == ui.browser_slot { 128 } else { 100 },
                     &label,
-                    0.8,
+                    label_scale,
                     ui.base_scale,
                     pack,
                 );
@@ -1344,31 +1366,6 @@ pub fn emit_ui(cmd_buf: &mut FrameCommandBuffer, ui: &OsdUi, menu: &MenuScene, p
             pack,
         );
     }
-}
-
-fn draw_text_themed(
-    cmd_buf: &mut FrameCommandBuffer,
-    x: i32,
-    y: i32,
-    rgba: [u8; 4],
-    alpha: u8,
-    s: &str,
-    pack: &AssetPack,
-    base_scale: f32,
-) {
-    let w = osd_text_width(s, 1.0, pack);
-    draw_text_l(
-        cmd_buf,
-        RenderTargetId::Screen,
-        x - w / 2,
-        y,
-        rgba,
-        alpha,
-        s,
-        1.0,
-        base_scale,
-        pack,
-    );
 }
 
 fn emit_value_options(
@@ -1477,10 +1474,10 @@ fn emit_clock_editor(
 }
 
 /// Button icons in `TEXCMARU` (`0x21D590`, 4 icons of 16×16 in a 64×64 sheet).
-pub const ICON_CROSS: usize = 1;
-pub const ICON_CIRCLE: usize = 0;
-pub const ICON_SQUARE: usize = 2;
-pub const ICON_TRIANGLE: usize = 3;
+pub const ICON_CIRCLE: u8 = 0;
+pub const ICON_CROSS: u8 = 1;
+pub const ICON_SQUARE: u8 = 2;
+pub const ICON_TRIANGLE: u8 = 3;
 
 fn emit_icon(cmd_buf: &mut FrameCommandBuffer, icon: usize, x: f32, y: f32, alpha: u8) {
     let u0 = (icon % 4) as f32 * 0.25;

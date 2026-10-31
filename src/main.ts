@@ -213,6 +213,7 @@ class App {
         console.warn('[osdbits] WebGPU device lost:', info.reason, info.message);
         this.gpuReady = false;
         this.gpuLossReason = `${info.reason}: ${info.message}`;
+        this.dom.canvas.dataset.gpuState = 'lost';
         if (info.reason !== 'destroyed') void this.recoverGpu();
         else this.gpuLossReason = `${info.message} (the browser destroyed the device)`;
         this.updateHud(true);
@@ -230,6 +231,7 @@ class App {
 
       this.renderer = new FrameRenderer(this.gpu, this.core);
       this.gpuReady = true;
+      this.dom.canvas.dataset.gpuState = 'live';
       this.applyResolution();
       this.buildPanel();
 
@@ -293,6 +295,7 @@ class App {
       this.applyResolution();
       this.gpuReady = true;
       this.gpuLossReason = null;
+      this.dom.canvas.dataset.gpuState = 'live';
       console.info('[osdbits] WebGPU device recovered');
     } catch (error) {
       this.gpuLossReason = error instanceof Error ? error.message : String(error);
