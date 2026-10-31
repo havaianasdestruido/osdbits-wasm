@@ -1,5 +1,32 @@
 import { defineConfig } from '@playwright/test';
 
+/**
+ * Which Chromium to drive.
+ *
+ * CI installs Playwright's own build (`npx playwright install chromium`) and expects
+ * Playwright to find it by itself. This development sandbox, however, only has a
+ * locally unpacked Chromium, which is selected by exporting `OSDBITS_CHROMIUM`.
+ * Hardcoding that sandbox path here made every CI test fail with "Executable doesn't
+ * exist at /usr/local/bin/chromium", so the override is opt-in.
+ */
+const chromiumPath = process.env['OSDBITS_CHROMIUM'];
+
+/**
+ * The standard headless recipe for a machine without a GPU: Dawn is forced onto the
+ * SwiftShader Vulkan adapter. This is what makes `navigator.gpu` produce a device in
+ * CI at all; the tests are written to tolerate that device being torn down mid-run
+ * (see `tests/e2e/app.spec.ts`).
+ */
+const GPU_ARGS = [
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
+  '--enable-unsafe-webgpu',
+  '--enable-features=Vulkan',
+  '--use-vulkan=swiftshader',
+  '--use-webgpu-adapter=swiftshader',
+  '--autoplay-policy=no-user-gesture-required',
+];
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 60000,
@@ -15,16 +42,9 @@ export default defineConfig({
     trace: 'retain-on-failure',
     viewport: { width: 1280, height: 800 },
     launchOptions: {
-      executablePath: '/usr/local/bin/chromium',
-      args: [
-        '--no-sandbox',
-        '--disable-dev-shm-usage',
-        '--enable-unsafe-webgpu',
-        '--enable-features=Vulkan',
-        '--use-vulkan=swiftshader',
-        '--use-webgpu-adapter=swiftshader',
-        '--autoplay-policy=no-user-gesture-required',
-      ],
+      // `exactOptionalPropertyTypes` forbids passing `undefined`, so spread instead.
+      ...(chromiumPath !== undefined && chromiumPath !== '' ? { executablePath: chromiumPath } : {}),
+      args: GPU_ARGS,
     },
   },
   webServer: {

@@ -96,6 +96,20 @@ npm run test:e2e
 
 Result: **11 passed**.
 
+**Choosing the browser.** By default Playwright uses the build it downloaded itself
+(`npx playwright install chromium`), which is what CI does. In an environment that only has a
+Chromium at a known path, point the config at it instead:
+
+```
+OSDBITS_CHROMIUM=/usr/local/bin/chromium npx playwright test
+```
+
+`playwright.config.ts` reads that variable and only then sets `launchOptions.executablePath`.
+It used to hardcode the sandbox path, which made every CI run fail with
+`Executable doesn't exist at /usr/local/bin/chromium` — the config is env-driven for that reason.
+The SwiftShader/Vulkan launch flags are always applied: they are what gives a GPU-less machine a
+WebGPU adapter at all.
+
 | Test | Asserts |
 |---|---|
 | activation screen states its capabilities | badge states resolved before the click, GPU title present |
