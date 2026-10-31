@@ -25,9 +25,9 @@ export default defineConfig({
   },
   webServer: isProdSuite
     ? {
-        command: "npx vite preview --host 127.0.0.1 --port 4173 --strictPort",
-        url: "http://127.0.0.1:4173",
-        reuseExistingServer: !process.env.CI,
+        command: "node scripts/serve-production-test.mjs",
+        url: "http://127.0.0.1:4173/osdbits-wasm/",
+        reuseExistingServer: false,
         timeout: 30_000,
       }
     : {

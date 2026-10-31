@@ -20,7 +20,7 @@
 | `npm run test:e2e` | Runs Playwright Chromium WebGPU E2E suites: smoke, Modes A/B/C/D GPU pixel readback & `device.lost` recovery, Mode A->D automatic handoff, single-click `Start OSDSYS` + synchronous `AudioContext.resume()`, unsupported-WebGPU fallback UI, and real cold-process browser close + relaunch persistence (`launchPersistentContext`). |
 | `npm run test:visual` | Runs deterministic 7-frame `640x448` golden PNG visual regression across Modes A, B, C, and D (`UPDATE_VISUAL_BASELINES=1 npm run test:visual` refreshes baselines). |
 | `npm run test:perf` | Runs 600-frame multi-mode endurance + 30 rapid mode switches + 20 resize reallocations verifying zero WASM memory leaks, zero `GPUTexture` VRAM leaks, and percentile (`p50`/`p95`/`p99`) latency budgets. |
-| `npm run test:prod` | Builds `dist/` and runs Playwright E2E against `vite preview` verifying zero external network requests and zero console errors. |
+| `npm run test:prod` | Builds `dist/` and runs Playwright E2E against a plain static server under a project-site subpath verifying zero external network requests and zero console errors. |
 | `npm run check:all` | Executes the complete end-to-end verification pipeline (`check:legal` -> `lint:rust` -> `test:rust` -> `test:unit` -> `typecheck` -> `build:web` -> `test:e2e` -> `test:visual` -> `test:perf` -> `test:prod`). |
 
 ---
@@ -62,3 +62,11 @@ In Linux CI / container environments without `/dev/dri` physical GPU nodes, `scr
 2. **MIME Types**: Ensure your static host serves `.wasm` files with `Content-Type: application/wasm` (standard on all modern CDNs and Vite/Nginx defaults).
 3. **No `SharedArrayBuffer` / `COOP`+`COEP` Lock-In**: `osdbits-wasm` uses single-threaded deterministic WASM linear memory and does **not** require `Cross-Origin-Opener-Policy` or `Cross-Origin-Embedder-Policy` headers, making embedding effortless.
 4. **Zero Runtime External Dependencies**: At runtime, the deployed app makes zero requests to external CDNs, font servers, analytics endpoints, or telemetry services.
+
+### GitHub Pages (GitHub Actions)
+
+1. In the repository **Settings → Pages**, set **Build and deployment → Source** to **GitHub Actions**. The repository must have Pages available and enabled.
+2. Push to the default branch. The CI workflow builds and tests the static bundle, uploads `dist/` as a Pages artifact, and deploys it only after verification succeeds. Pull requests and non-default-branch pushes are tested but never deployed.
+3. Find the deployed URL in the workflow's `github-pages` environment. A project site normally lives at `https://<owner>.github.io/<repository>/`; an account site or custom domain can use the root. Relative asset paths support both.
+
+No application server, runtime secrets, or custom HTTP headers are required. WebGPU requires a supported browser and GPU; the app displays a fallback when unavailable. The production test uses a static server with no SPA fallback and checks the project subpath, WASM MIME type, and browser functionality.
