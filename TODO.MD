@@ -288,7 +288,8 @@ Reporting status vocabulary used alongside checkboxes: `Implemented`, `Tested`, 
 - **Acceptance Criteria**:
   - Full keyboard navigation (`Tab`, `Enter`/`Space`, `Escape`, arrow keys, shortcut keys) with visible `:focus-visible` rings, ARIA roles/labels, and `prefers-reduced-motion` awareness.
   - Every customization persists automatically with read-back verification and **Reset to Defaults** restores exact faithful OSDSYS parameters.
-- **Required Tests**: Vitest UI state/accessibility tests + Playwright E2E flows testing single-click startup, keyboard-only navigation, Mode A/B/C/D/E switching, customization persistence across full browser restart, asset validation error handling, and scene recovery without reload.
+  - Mode D controls mirror the core's input gate (`MenuSim::input_ready`, `menu.c:0x227D08`) with the `disabled` attribute, so rows fading in during the 90-frame System Configuration choreography can never swallow a pointer click, and menu rows are updated in place instead of being re-created every clock tick.
+- **Required Tests**: Vitest UI state/accessibility tests + Playwright E2E flows testing single-click startup, keyboard-only navigation, Mode A/B/C/D/E switching, customization persistence across full browser restart, asset validation error handling, scene recovery without reload, and Mode D input-readiness gating (`tests/e2e/menu-input-readiness.spec.ts`).
 - **Dependencies**: `P06-001`, `P06-002`, `P07-001`, `P08-001`.
 
 ---

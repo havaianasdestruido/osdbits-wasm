@@ -650,6 +650,11 @@ pub struct MenuUiItem {
 #[derive(Clone, Debug, Default)]
 pub struct MenuUiSnapshot {
     pub screen: Option<MenuScreenState>,
+    /// True when [`MenuSim::input_ready`] accepts input right now, i.e. when
+    /// `dispatch_action` would not swallow the event. The browser shell uses this
+    /// to keep menu controls disabled instead of silently dropping clicks during
+    /// the 90-frame System Configuration choreography (`menu.c:0x227D08`).
+    pub input_ready: bool,
     pub date_text: String,
     pub time_text: String,
     pub title: String,
@@ -952,6 +957,23 @@ impl MenuSim {
         audio.push(AudioCue::MenuCancel);
     }
 
+    /// True when [`Self::dispatch_action`] would accept input in the current state.
+    ///
+    /// Both the main-menu fade-in and the System Configuration choreography
+    /// (`cfgAnim` states 1/3, `menu.c:0x227D08`) ignore input while they play.
+    /// The UI shell mirrors this so that controls are only shown as clickable
+    /// once the core actually accepts the event.
+    pub fn input_ready(&self) -> bool {
+        // Sub-panels accept Confirm/Cancel to close at any time.
+        if self.screen_override.is_some() {
+            return true;
+        }
+        if self.cfg_anim.state == 0 {
+            return self.main_menu_anim.state == 2 || self.fade_mode == 0;
+        }
+        self.cfg_anim.state == 2
+    }
+
     pub fn dispatch_action(&mut self, action: MenuAction, audio: &mut Vec<AudioCue>) {
         // Sub-panels (`Browser`, `Version`) close on Cancel or Confirm
         if let Some(_ov) = self.screen_override {
@@ -962,11 +984,12 @@ impl MenuSim {
             return;
         }
 
+        // Main-menu fade-in and System Configuration transitions swallow input.
+        if !self.input_ready() {
+            return;
+        }
+
         if self.cfg_anim.state == 0 {
-            // Main Menu input (only once mainMenuAnim is open or fade completed)
-            if self.main_menu_anim.state != 2 && self.fade_mode != 0 {
-                return;
-            }
             let total = self.main_menu_entry_count();
             match action {
                 MenuAction::Up => {
@@ -994,11 +1017,6 @@ impl MenuSim {
                 }
                 _ => {}
             }
-            return;
-        }
-
-        // System Configuration ignores input while transitioning (`state != 2`, `0x227D08`)
-        if self.cfg_anim.state != 2 {
             return;
         }
 
@@ -2423,6 +2441,11 @@ impl MenuSim {
     fn build_ui_snapshot(&self, out: &mut MenuRenderList) {
         let screen = self.current_screen();
         out.ui.screen = Some(screen);
+        // Items fade in during the last `cfgDur10` frames of the open transition,
+        // but `dispatch_action` keeps ignoring input until `cfgAnim` reaches state
+        // 2. Publish that gap so the shell can disable the controls instead of
+        // dropping pointer clicks (`menu.c:0x227D08`).
+        out.ui.input_ready = self.input_ready();
         out.ui.date_text = self.clock.format_date();
         out.ui.time_text = self.clock.format_time();
         if self.confirm_cancel_swap {
@@ -2657,6 +2680,78 @@ mod tests {
             r1.ui.items[2].provenance,
             MenuEntryProvenance::CleanRoomExtension
         );
+    }
+
+    #[test]
+    fn input_readiness_gates_items_that_fade_in_before_the_transition_finishes() {
+        let clk = MenuClock::new(2026, 10, 31, 21, 45, 15);
+        let mut sim = MenuSim::new(VideoStandard::Ntsc, clk, OsdLanguage::English, 1, true);
+        let mut render = MenuRenderList::default();
+        let mut audio = Vec::new();
+
+        // During the opening fade-in the main menu refuses input.
+        assert!(!sim.input_ready());
+
+        let mut main_menu_ready_frames = 0;
+        for _ in 0..135 {
+            sim.step(&mut render, &mut audio);
+            if render.ui.input_ready {
+                main_menu_ready_frames += 1;
+            }
+            // Never advertise clickable main-menu entries while input is ignored.
+            if !render.ui.input_ready {
+                assert!(render.ui.items.is_empty());
+            }
+        }
+        assert!(main_menu_ready_frames > 0);
+        assert_eq!(sim.current_screen(), MenuScreenState::MainMenu);
+        assert!(sim.input_ready());
+
+        sim.dispatch_action(MenuAction::Down, &mut audio);
+        sim.dispatch_action(MenuAction::Confirm, &mut audio);
+        assert_eq!(
+            sim.current_screen(),
+            MenuScreenState::SystemConfigTransitionIn
+        );
+        assert!(
+            !sim.input_ready(),
+            "config transition-in must swallow input"
+        );
+
+        // The config items fade in over the last frames of the open transition, so
+        // there is a window where rows are visible but the core still ignores input.
+        let mut visible_but_not_ready = 0;
+        for _ in 0..90 {
+            sim.step(&mut render, &mut audio);
+            if sim.current_screen() == MenuScreenState::SystemConfigList {
+                assert!(
+                    render.ui.input_ready,
+                    "config list must be interactive as soon as it is displayed"
+                );
+                assert!(!render.ui.items.is_empty());
+            } else if !render.ui.items.is_empty() && !render.ui.input_ready {
+                visible_but_not_ready += 1;
+            }
+        }
+        assert!(
+            visible_but_not_ready > 0,
+            "expected a fade-in window where rows are drawn before input is accepted"
+        );
+        assert_eq!(sim.current_screen(), MenuScreenState::SystemConfigList);
+        assert!(sim.input_ready());
+
+        // Closing the config screen blocks input again until the choreography ends.
+        sim.dispatch_action(MenuAction::Cancel, &mut audio);
+        assert_eq!(
+            sim.current_screen(),
+            MenuScreenState::SystemConfigTransitionOut
+        );
+        assert!(!sim.input_ready());
+        for _ in 0..90 {
+            sim.step(&mut render, &mut audio);
+        }
+        assert_eq!(sim.current_screen(), MenuScreenState::MainMenu);
+        assert!(sim.input_ready());
     }
 
     #[test]

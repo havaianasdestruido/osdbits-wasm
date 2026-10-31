@@ -81,6 +81,9 @@ export interface MenuUiSnapshot {
     | "config-out"
     | "version-approx"
     | "none";
+  /** True when the core accepts menu input; false during the fade-in/90-frame
+   * choreography. The shell disables its controls while this is false. */
+  interactive: boolean;
   date: string;
   time: string;
   title: string;

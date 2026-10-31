@@ -307,6 +307,13 @@ input:focus-visible,
   transition: background 110ms ease, border-color 110ms ease, color 110ms ease;
 }
 
+/* The row exists during the 90-frame open choreography before the core accepts
+   input (`menu.c:0x227D08`); it is rendered disabled so pointer clicks are never
+   silently swallowed. Keep the authentic fade-in look instead of grey text. */
+.menu-item-btn:disabled {
+  cursor: default;
+}
+
 .menu-item-btn.selected,
 .menu-item-btn:hover {
   color: var(--accent-gold);
@@ -380,6 +387,11 @@ input:focus-visible,
   justify-content: center;
   gap: 24px;
   pointer-events: auto;
+}
+
+.hint-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .hint-btn {

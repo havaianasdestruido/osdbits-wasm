@@ -91,13 +91,20 @@ describe("Phase 3 — WASM C-ABI & TypeScript WasmSimulationBridge", () => {
       "sourced",
       "extension",
     ]);
+    expect(snap.menuUi?.interactive).toBe(true);
 
     expect(bridge.dispatchMenuAction("down")).toBe(true);
     expect(bridge.dispatchMenuAction("confirm")).toBe(true);
+    // The 90-frame open choreography swallows input (`menu.c:0x227D08`), so the
+    // shell must keep its controls disabled until the core accepts input again.
+    snap = bridge.stepFrame();
+    expect(snap.menuUi?.screen).toBe("config-in");
+    expect(snap.menuUi?.interactive).toBe(false);
     for (let i = 0; i < 92; i++) {
       snap = bridge.stepFrame();
     }
     expect(snap.menuUi?.screen).toBe("config-list");
+    expect(snap.menuUi?.interactive).toBe(true);
     expect(snap.rods).toBe(12);
     expect(snap.cubes).toBe(5);
     expect(snap.orbs).toBe(7);
