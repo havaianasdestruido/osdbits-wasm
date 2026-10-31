@@ -58,7 +58,9 @@ the single-activation flow.
    vertices → cube records.
 3. `frame.ts` validates it (magic, version, offsets, ranges, finiteness) and
    throws `FrameError` on anything inconsistent.
-4. The renderer walks the batches, maps `(prim, tex, blend)` onto pipelines and
+4. The renderer walks the batches, maps `(prim, tex, blend)` onto one of four
+   vertex modes (world triangles, billboards, instanced screen sprites, absolute
+   screen triangles for the CPU-expanded light trails) and
    draws. Cube records are expanded to lit triangles at the position the core
    marked (`H_CUBE_AFTER_BATCH`).
 5. The app updates the DOM text overlays from the header alphas and the

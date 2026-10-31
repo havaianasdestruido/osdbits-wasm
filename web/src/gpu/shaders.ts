@@ -6,6 +6,8 @@
  *   mode 0 — world triangles (towers, fog, flare fans, cube faces)
  *   mode 1 — world-space billboards (one instance per sprite record)
  *   mode 2 — screen-space sprites (one instance per record, pixels)
+ *   mode 3 — screen-space triangles (vertices are absolute pixels; used for
+ *            the CPU-expanded light trails)
  *
  * The projection reproduces the reconstruction's view-screen matrix without a
  * mat4 uniform for the projection: x_ndc = ax*scrz*x / (z * w/2), which is the
@@ -95,7 +97,7 @@ fn vs_main(input: VSIn, @builtin(vertex_index) vi: u32) -> VSOut {
     let rotated = vec2f(corner.x * c - corner.y * s, corner.x * s + corner.y * c);
     out.clip = clip_of_view(vec3f(v.x + rotated.x, v.y + rotated.y, v.z));
     out.uv = vec2f(corner.x / (2.0 * hx) + 0.5, 0.5 - corner.y / (2.0 * hy));
-  } else {
+  } else if (mode < 2.5) {
     // Screen sprite: x/y are pixels, uv the size in pixels, no depth.
     let centre = input.pos.xy;
     let size = input.uv;
@@ -107,6 +109,12 @@ fn vs_main(input: VSIn, @builtin(vertex_index) vi: u32) -> VSOut {
     let ndc = vec2f(px.x / (b.p0.x * 0.5) - 1.0, 1.0 - px.y / (b.p0.y * 0.5));
     out.clip = vec4f(ndc, 0.0, 1.0);
     out.uv = vec2f(corner.x + 0.5, corner.y + 0.5);
+  } else {
+    // Absolute screen-space triangle: the vertex position is already the
+    // final pixel coordinate (the CPU expanded the trail segments).
+    let px = input.pos.xy;
+    out.clip = vec4f(px.x / (b.p0.x * 0.5) - 1.0, 1.0 - px.y / (b.p0.y * 0.5), 0.0, 1.0);
+    out.uv = input.uv;
   }
   return out;
 }

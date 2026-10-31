@@ -189,7 +189,7 @@ export class WebGpuRenderer {
   /** Optional device-loss callback (set by the engine before the first frame). */
   static lostHandler: ((message: string) => void) | null = null;
 
-  private pipeline(mode: 0 | 1 | 2, blend: number): GPURenderPipeline {
+  private pipeline(mode: 0 | 1 | 2 | 3, blend: number): GPURenderPipeline {
     const key = `${mode}:${blend}`;
     const existing = this.pipelines.get(key);
     if (existing) return existing;
@@ -203,7 +203,7 @@ export class WebGpuRenderer {
         buffers: [
           {
             arrayStride: VERTEX_FLOATS * 4,
-            stepMode: mode === 0 ? "vertex" : "instance",
+            stepMode: mode === 0 || mode === 3 ? "vertex" : "instance",
             attributes: [
               { shaderLocation: 0, offset: 0, format: "float32x3" },
               { shaderLocation: 1, offset: 12, format: "float32x2" },
@@ -339,7 +339,7 @@ export class WebGpuRenderer {
       this.writeUniform(i, frame, mode, b.tex !== 0);
     }
     this.writeUniform(AUX_WORLD, frame, 0, false);
-    this.writeUniform(AUX_SCREEN, frame, 2, false);
+    this.writeUniform(AUX_SCREEN, frame, 3, false);
     this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData);
 
     // 4. Record.
@@ -397,9 +397,9 @@ export class WebGpuRenderer {
     }
     for (let i = upTo; i < slots; i++) drawBatch(i);
     if (lineRange.count > 0) {
-      pass.setPipeline(this.pipeline(2, BLEND.ADD));
+      pass.setPipeline(this.pipeline(3, BLEND.ADD));
       pass.setBindGroup(0, this.bindGroup(0), [AUX_SCREEN * UNIFORM_STRIDE]);
-      // The screen mode reads x/y in pixels; the shader clamps to the viewport.
+      // Mode 3: the vertices are absolute pixels, no further expansion.
       pass.draw(lineRange.count, 1, lineRange.offset);
       stats.triangles += lineRange.count / 3;
       stats.draws++;
@@ -410,7 +410,7 @@ export class WebGpuRenderer {
     return stats;
   }
 
-  private writeUniform(slot: number, frame: Frame, mode: 0 | 1 | 2, texOn: boolean): void {
+  private writeUniform(slot: number, frame: Frame, mode: 0 | 1 | 2 | 3, texOn: boolean): void {
     const o = slot * FLOATS_PER_UNIFORM;
     const view = frame.view;
     for (let i = 0; i < 16; i++) this.uniformData[o + i] = view[i];
