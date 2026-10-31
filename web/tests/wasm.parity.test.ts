@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { BLEND, HEADER_WORDS, PRIM, STATE, TEX } from "../src/abi.js";
+import { BLEND, HEADER_WORDS, OPT, PRIM, STATE, TEX } from "../src/abi.js";
 import { parseFrame } from "../src/frame.js";
 import { loadCore, type Core } from "../src/wasm.js";
 
@@ -132,6 +132,41 @@ describe.skipIf(!haveWasm)("wasm ABI parity", () => {
       events += core.events().length;
     }
     expect(events).toBeGreaterThan(0);
+  });
+
+  it("applies the camera-motion option only at scene init, as the shell does", () => {
+    // osd_set_option() writes a global snapshot that osd_init() copies into the
+    // scene, so the shell must set options before starting a scene (it does:
+    // Engine.applySettings() then Engine.start() -> init()). This test pins the
+    // contract so the ordering cannot regress silently.
+    core.setOption(OPT.CAMERA_MOTION, 0);
+    core.init(0, 4242);
+    for (let i = 0; i < 200; i++) core.step();
+    const held = core.state(STATE.Z);
+    expect(held).toBeCloseTo(16, 3);
+
+    core.setOption(OPT.CAMERA_MOTION, 1);
+    core.init(0, 4242);
+    for (let i = 0; i < 200; i++) core.step();
+    expect(core.state(STATE.Z)).toBeGreaterThan(16);
+
+    // Restore the default for the remaining tests.
+    core.setOption(OPT.CAMERA_MOTION, 1);
+  });
+
+  it("keeps animating the scene while the camera is held", () => {
+    core.setOption(OPT.CAMERA_MOTION, 0);
+    core.init(0, 4242);
+    const hashes = new Set<string>();
+    for (let i = 0; i < 120; i++) {
+      core.step();
+      core.draw();
+      hashes.add(core.hash().toString(16));
+    }
+    // The camera is frozen, so the frames must still differ: fog, lights and
+    // text animation continue.
+    expect(hashes.size).toBeGreaterThan(1);
+    core.setOption(OPT.CAMERA_MOTION, 1);
   });
 
   it("emits a header-only frame for the menu mode", () => {

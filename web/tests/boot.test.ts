@@ -107,6 +107,44 @@ describe("boot", () => {
     expect(app).toBeTruthy();
   });
 
+  it("keeps the core-failure message when storage resolves late", async () => {
+    // Regression: applySettingsToUi() -> setCapabilities() used to overwrite the
+    // "core unavailable" line once the (slower) storage lookup finished, which
+    // showed up as a browser-specific E2E failure.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 404, statusText: "Not Found" }) as unknown as Response),
+    );
+    await bootApp();
+    const capabilities = () => document.getElementById("capabilities")?.textContent ?? "";
+    expect(capabilities()).toMatch(/simulation core is unavailable/i);
+    // Let the storage chain finish and settle.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(capabilities()).toMatch(/simulation core is unavailable/i);
+  });
+
+  it("applies the reduced-motion preference before the first frame", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("prefers-reduced-motion"),
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addEventListener_: () => undefined,
+        onchange: null,
+        dispatchEvent: () => false,
+      })),
+    );
+    await bootApp();
+    expect(document.documentElement.dataset.cameraMotion).toBe("off");
+    // The settings form is rendered once the stored settings resolve.
+    await vi.waitFor(() => {
+      const reduced = document.getElementById("field-reducedMotion") as HTMLInputElement | null;
+      expect(reduced?.checked).toBe(true);
+    });
+  });
+
   it("lists the menu items and wires the settings form", async () => {
     await bootApp();
     const items = document.querySelectorAll("#menu-items [role='menuitem']");

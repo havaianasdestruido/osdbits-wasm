@@ -1118,18 +1118,70 @@ mod tests {
     }
 
     #[test]
-    fn reduced_motion_freezes_the_camera_but_keeps_animating() {
-        let mut s = scene(MODE_BOOT);
-        s.options.camera_motion = false;
-        s.step();
-        let z = s.camera.position[2];
-        for _ in 0..30 {
-            s.step();
-            s.draw();
+    fn reduced_motion_holds_the_idle_drift_but_keeps_animating() {
+        // The drift integrator runs only while the option is on. In the idle
+        // scene it owns the camera, so turning it off has to freeze the pose.
+        let mut frozen = scene(MODE_IDLE);
+        frozen.options.camera_motion = false;
+        for _ in 0..20 {
+            frozen.step();
+            frozen.draw();
         }
-        assert_eq!(s.camera.position[2], z, "camera moved");
-        // The fog animation keeps running even though the camera is frozen.
-        assert!(s.fog.animation[0] > 0.0, "fog animation stalled");
+        let rotation = frozen.camera.rotation;
+        let position = frozen.camera.position;
+        for _ in 0..30 {
+            frozen.step();
+            frozen.draw();
+        }
+        assert_eq!(
+            frozen.camera.rotation, rotation,
+            "reduced motion: drift rotated"
+        );
+        assert_eq!(
+            frozen.camera.position, position,
+            "reduced motion: drift moved"
+        );
+        // The scene itself keeps animating even though the camera is held.
+        assert!(frozen.fog.animation[0] > 0.0, "fog animation stalled");
+
+        // With the option on the same scene does drift.
+        let mut drifting = scene(MODE_IDLE);
+        for _ in 0..20 {
+            drifting.step();
+            drifting.draw();
+        }
+        let rotation = drifting.camera.rotation;
+        for _ in 0..30 {
+            drifting.step();
+            drifting.draw();
+        }
+        assert_ne!(
+            drifting.camera.rotation, rotation,
+            "camera should drift by default"
+        );
+    }
+
+    #[test]
+    fn reduced_motion_holds_the_opening_camera_path_too() {
+        // The opening's ascent is driven by the same camera integrator, so
+        // turning camera motion off holds the opening camera as well; only the
+        // scene's own animation (fog, lights, text) keeps running.
+        let mut on = scene(MODE_BOOT);
+        let mut off = scene(MODE_BOOT);
+        off.options.camera_motion = false;
+        for _ in 0..200 {
+            on.step();
+            off.step();
+        }
+        assert!(
+            on.camera.position[2] > 16.0,
+            "the default opening should ascend"
+        );
+        assert_eq!(
+            off.camera.position[2], 16.0,
+            "reduced motion: the camera still ascended"
+        );
+        assert!(off.fog.animation[0] > 0.0, "animation should keep running");
     }
 
     #[test]

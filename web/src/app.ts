@@ -88,7 +88,7 @@ const FIELDS: readonly FieldDef[] = [
     key: "reducedMotion",
     label: "Reduced motion (hold the camera)",
     kind: "checkbox",
-    note: "Honours the system preference as well.",
+    note: "Holds the camera in every scene, the opening included; fog, lights and text keep animating. Honours the system preference as well.",
   },
   { key: "audio", label: "Audio", kind: "checkbox" },
   { key: "volume", label: "Volume", kind: "range", min: 0, max: 1, step: 0.05 },
@@ -102,7 +102,11 @@ const $ = <T extends HTMLElement>(id: string): T => {
 };
 
 export class App {
-  private settings: Settings = normalizeSettings(null);
+  private settings: Settings = normalizeSettings({
+    reducedMotion: prefersReducedMotion(),
+  });
+  /** Resolves once the stored settings have been applied to the UI. */
+  private settingsReady: Promise<void> = Promise.resolve();
   private repository: Repository | null = null;
   private store: KeyValueStore | null = null;
   private core: Core | null = null;
@@ -141,7 +145,7 @@ export class App {
     const storePromise = openStore();
     const corePromise = loadCore(new URL("osdbits_core.wasm", document.baseURI));
 
-    storePromise
+    this.settingsReady = storePromise
       .then((store) => {
         this.store = store;
         this.repository = new Repository(store);
@@ -151,9 +155,10 @@ export class App {
         return this.repository.loadSettings();
       })
       .then(async ({ settings }) => {
-        const prefersReduced =
-          globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-        this.settings = normalizeSettings({ ...settings, reducedMotion: settings.reducedMotion || prefersReduced });
+        this.settings = normalizeSettings({
+          ...settings,
+          reducedMotion: settings.reducedMotion || prefersReducedMotion(),
+        });
         this.renderSettingsForm();
         this.applySettingsToUi();
         const session = await this.repository?.loadSession();
@@ -207,7 +212,10 @@ export class App {
 
     try {
       if (!this.core) throw new Error("the simulation core is not loaded");
-      // 2. Renderer (WebGPU, falling back to Canvas 2D), 3. the scene.
+      // 2a. The stored settings decide seed, scene and reduced motion; waiting
+      // for them keeps the first frame identical to a reloaded one.
+      await this.settingsReady;
+      // 2b. Renderer (WebGPU, falling back to Canvas 2D), 3. the scene.
       const engine = new Engine(this.canvas, this.core, this.audio, this.settings, {
         onStatus: (status) => this.updateStatus(status),
         onFrame: (frame) => this.updateText(frame),
@@ -310,6 +318,11 @@ export class App {
   }
 
   private setCapabilities(): void {
+    if (!this.core) {
+      // A late storage resolution must not overwrite the failure message.
+      this.capabilitiesLine.textContent = "the simulation core is unavailable";
+      return;
+    }
     const gpu =
       typeof (navigator as Navigator & { gpu?: GPU }).gpu !== "undefined"
         ? "WebGPU available"
@@ -612,6 +625,14 @@ export class App {
     const motion = effectiveCameraMotion(this.settings);
     document.documentElement.dataset.cameraMotion = motion ? "on" : "off";
     this.setCapabilities();
+  }
+}
+
+function prefersReducedMotion(): boolean {
+  try {
+    return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  } catch {
+    return false;
   }
 }
 

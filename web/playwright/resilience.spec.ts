@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openApp, rendererKind, startScene } from "./support.js";
+import { openApp, openPanel, rendererKind, startScene } from "./support.js";
 
 /**
  * Failure paths. Each one has to be visible to the user and recoverable
@@ -62,20 +62,37 @@ test.describe("resilience", () => {
       .toBeGreaterThan(0);
   });
 
-  test("reduced motion holds the camera", async ({ page }) => {
-    await page.emulateMedia({ reducedMotion: "reduce" });
+  test("reduced motion holds the camera while the scene keeps animating", async ({ page }) => {
     await openApp(page);
+    // Set it explicitly rather than through media emulation, so the assertion
+    // is about the app, not about which browser emulates prefers-reduced-motion.
+    await openPanel(page, "Settings");
+    await page.locator("#field-reducedMotion").check();
+    await page.locator("#settings-save").click();
     await startScene(page);
+
+    await expect(page.locator("html")).toHaveAttribute("data-camera-motion", "off");
     const body = page.locator("body");
-    const height1 = await body.getAttribute("data-camera-height");
-    expect(height1).toBeTruthy();
-    await page.waitForTimeout(800);
-    const height2 = await body.getAttribute("data-camera-height");
-    expect(height2).toBe(height1);
-    // The scene itself keeps running: only the camera is held.
-    await expect
-      .poll(async () => Number(await body.getAttribute("data-frame")), { timeout: 20_000 })
-      .toBeGreaterThan(0);
+    // The opening camera path is held as well; the core reports z = 16.
+    await expect.poll(async () => await body.getAttribute("data-camera-height")).toBe("16.00");
+    const first = Number(await body.getAttribute("data-frame"));
+    const height = await body.getAttribute("data-camera-height");
+    await page.waitForTimeout(900);
+    expect(await body.getAttribute("data-camera-height")).toBe(height);
+    // ...and the simulation still advances (fog, lights, text).
+    expect(Number(await body.getAttribute("data-frame"))).toBeGreaterThan(first);
+  });
+
+  test("the system reduced-motion preference is honoured", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const reported = await page.evaluate(
+      () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+    );
+    test.skip(!reported, "this browser does not emulate prefers-reduced-motion");
+    await openApp(page);
+    await expect(page.locator("html")).toHaveAttribute("data-camera-motion", "off");
+    await openPanel(page, "Settings");
+    await expect(page.locator("#field-reducedMotion")).toBeChecked();
   });
 
   test("the page survives a reload mid-scene", async ({ page }) => {
