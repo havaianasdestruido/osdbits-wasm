@@ -116,6 +116,9 @@ jobs:
         run: npx --prefix web playwright install --with-deps chromium firefox webkit
       - name: Run E2E
         run: npm --prefix web run e2e
+      - name: Summarise failures as annotations
+        if: always()
+        run: node web/scripts/e2e-summary.mjs web/test-results/report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

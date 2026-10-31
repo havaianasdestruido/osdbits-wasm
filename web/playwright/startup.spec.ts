@@ -1,68 +1,98 @@
 import { expect, test } from "@playwright/test";
+import { hasWebGpuAdapter, openApp, rendererKind, startScene } from "./support.js";
 
 /**
- * Single-activation journey. Written against the real app; never executed in
- * the development sandbox (no browser binaries) — see docs/TEST-EVIDENCE.md.
- *
- * The assertions are capability-aware: WebGPU is required to be *reported*
- * honestly, not to be present.
+ * Activation journey. These run on every browser in CI, GPU or not: the app
+ * must either use WebGPU or say that it fell back, and in both cases the single
+ * click has to start the scene.
  */
 test.describe("activation", () => {
-  test("one click starts audio, the core and the scene", async ({ page }) => {
-    const errors: string[] = [];
-    page.on("pageerror", (e) => errors.push(e.message));
-    await page.goto("/");
-
-    // The activation screen is up and there is exactly one start control.
-    await expect(page.getByRole("button", { name: "Start OSDSYS" })).toBeVisible();
+  test("boot settles and offers exactly one start control", async ({ page }) => {
+    const errors = await openApp(page);
+    const start = page.getByRole("button", { name: "Start OSDSYS" });
+    await expect(start).toBeVisible();
+    await expect(start).toBeEnabled();
     await expect(page.getByRole("button", { name: "Start OSDSYS" })).toHaveCount(1);
-
-    const gpu = await page.evaluate(() => typeof (navigator as { gpu?: unknown }).gpu !== "undefined");
-    const audio = await page.evaluate(
-      () => typeof (window as { AudioContext?: unknown }).AudioContext === "function",
-    );
-
-    // Count the gestures: exactly one click may be needed.
-    let clicks = 0;
-    page.on("console", () => undefined);
-    await page.getByRole("button", { name: "Start OSDSYS" }).click();
-    clicks++;
-
-    await expect(page.locator("#start")).toBeHidden({ timeout: 20_000 });
-    await expect(page.locator("#status")).toContainText(/fps/, { timeout: 20_000 });
-
-    // The renderer that actually came up is reported, never assumed.
-    const status = await page.locator("#status").innerText();
-    if (gpu) {
-      expect(status).toMatch(/WebGPU|Canvas 2D/);
-    } else {
-      expect(status).toContain("Canvas 2D");
-    }
-    expect(clicks).toBe(1);
-
-    // If audio is available the context must be running after the gesture
-    // (a browser that refuses exposes it through the banner instead).
-    if (audio) {
-      const state = await page.evaluate(() => {
-        const anyWindow = window as unknown as { __osdAudioState?: string };
-        return anyWindow.__osdAudioState ?? "unknown";
-      });
-      expect(["running", "unknown"]).toContain(state);
-    }
-    expect(errors).toEqual([]);
+    await expect(page.locator("#capabilities")).toContainText(/WebGPU (available|unavailable)/);
+    await expect(page.locator("#status")).toHaveText("idle");
+    expect(errors, "no uncaught page errors before activation").toEqual([]);
   });
 
-  test("the frame counter advances and the draw list is non-trivial", async ({ page }) => {
-    await page.goto("/");
-    await page.getByRole("button", { name: "Start OSDSYS" }).click();
-    await expect(page.locator("#start")).toBeHidden({ timeout: 20_000 });
-    await page.getByRole("button", { name: "Diagnostics" }).click();
-    const list = page.locator("#diagnostics-list");
-    await expect(list).toContainText("simulation frame");
-    const before = Number((await list.innerText()).match(/simulation frame\s+(\d+)/)?.[1] ?? 0);
+  test("one click starts the scene and reports the renderer it got", async ({ page }) => {
+    const errors = await openApp(page);
+    await startScene(page);
+
+    const kind = await rendererKind(page);
+    expect(["webgpu", "canvas2d"]).toContain(kind);
+
+    const status = await page.locator("#status").innerText();
+    expect(status).toMatch(/fps/);
+    expect(status).toMatch(kind === "webgpu" ? /WebGPU/ : /Canvas 2D/);
+
+    // A fallback is announced, never hidden.
+    if (kind === "canvas2d") {
+      await expect(page.locator("#banner-text")).toContainText(/WebGPU/);
+    }
+
+    // Audio: the context is created inside the gesture. Whether the browser
+    // actually produces sound is not observable here, so we only require the
+    // state to be reported honestly.
+    const audio = await page.locator("body").getAttribute("data-audio");
+    expect(["running", "suspended", "none", "closed", "interrupted", null]).toContain(audio);
+
+    expect(errors, "no uncaught page errors after activation").toEqual([]);
+  });
+
+  test("WebGPU is used when the browser has an adapter", async ({ page }) => {
+    await openApp(page);
+    test.skip(!(await hasWebGpuAdapter(page)), "this browser has no WebGPU adapter");
+    await startScene(page);
+    expect(await rendererKind(page)).toBe("webgpu");
+  });
+
+  test("the simulation advances and emits a non-trivial draw list", async ({ page }) => {
+    await openApp(page);
+    await startScene(page);
+    const body = page.locator("body");
+
+    const frame1 = Number(await body.getAttribute("data-frame"));
+    expect(frame1).toBeGreaterThanOrEqual(0);
+    await expect
+      .poll(async () => Number(await body.getAttribute("data-frame")), { timeout: 20_000 })
+      .toBeGreaterThan(frame1);
+
+    // The opening scene is 640x224 with towers, fog and light streaks: a frame
+    // with no batches would mean the core produced nothing.
+    const batches = Number(await body.getAttribute("data-batches"));
+    expect(batches).toBeGreaterThan(0);
+    expect(await body.getAttribute("data-scene")).toMatch(/^\d+$/);
+  });
+
+  test("the drawn canvas is not blank", async ({ page }) => {
+    await openApp(page);
+    await startScene(page);
     await page.waitForTimeout(1000);
-    const after = Number((await list.innerText()).match(/simulation frame\s+(\d+)/)?.[1] ?? 0);
-    expect(after).toBeGreaterThan(before);
-    await expect(list).toContainText(/draw list\s+\d+ batches/);
+    const variance = await page.evaluate(() => {
+      const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+      const copy = document.createElement("canvas");
+      copy.width = 64;
+      copy.height = 32;
+      const ctx = copy.getContext("2d");
+      if (!ctx) return -1;
+      ctx.drawImage(canvas, 0, 0, copy.width, copy.height);
+      const data = ctx.getImageData(0, 0, copy.width, copy.height).data;
+      let sum = 0;
+      let sumSq = 0;
+      const n = data.length / 4;
+      for (let i = 0; i < data.length; i += 4) {
+        const l = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        sum += l;
+        sumSq += l * l;
+      }
+      return sumSq / n - (sum / n) ** 2;
+    });
+    // Not a visual-regression baseline (those need a GPU); just proof that the
+    // canvas holds a rendered, varied image rather than a clear colour.
+    expect(variance).toBeGreaterThan(1);
   });
 });
