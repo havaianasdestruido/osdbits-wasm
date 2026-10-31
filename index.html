@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osdbits-wasm — Clean-Room OSDSYS Visual Reconstruction</title>
+    <link rel="stylesheet" href="/src/styles/osdbits.css" />
+  </head>
+  <body>
+    <main id="viewport-stage" aria-label="OSDSYS 3D Viewport">
+      <canvas
+        id="osdbits-canvas"
+        width="640"
+        height="480"
+        aria-label="OSDSYS real-time visual simulation canvas"
+      ></canvas>
+    </main>
+
+    <!-- Single-gesture nostalgic startup gate -->
+    <section
+      id="startup-gate"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="gate-title"
+    >
+      <div class="gate-card">
+        <div class="gate-monolith-mark">OSDBITS // WASM · CLEAN-ROOM</div>
+        <h1 id="gate-title" class="gate-title">OSDSYS VISUAL EXPERIENCE</h1>
+        <p class="gate-subtitle">
+          Browser-native Rust/WASM + WebGPU reconstruction of the early-2000s
+          tower monolith, refractive glass cubes, 7-orb clock ring, and illegal-disc
+          sequence. Works out-of-the-box with procedural clean-room assets.
+        </p>
+        <div id="gate-preflight" class="gate-preflight" aria-live="polite">
+          <span id="gate-badge-gpu" class="badge">Probing WebGPU…</span>
+          <span id="gate-badge-storage" class="badge">Checking IndexedDB…</span>
+          <span id="gate-badge-assets" class="badge badge-verified">No BIOS Required</span>
+        </div>
+        <button id="start-osdsys-btn" type="button" class="primary-launch-btn" autofocus>
+          Start OSDSYS
+        </button>
+        <p class="gate-legal-note">
+          Independent clean-room preservation fork of <code>aap/osdbits</code>.
+          Zero Sony ROM or BIOS files included or required.
+        </p>
+      </div>
+    </section>
+
+    <!-- Floating compact top status bar -->
+    <header id="top-bar" hidden aria-label="OSDSYS Status Bar">
+      <span id="badge-active-mode" class="badge">Opening</span>
+      <span id="badge-fidelity" class="badge badge-verified">Verified Reconstruction</span>
+      <span id="badge-renderer" class="badge">WebGPU</span>
+      <button
+        id="hud-toggle-btn"
+        type="button"
+        class="btn"
+        aria-expanded="true"
+        aria-controls="hud-drawer"
+        title="Toggle Control Drawer (H)"
+      >
+        HUD [H]
+      </button>
+    </header>
+
+    <!-- Collapsible accessible HUD control drawer -->
+    <aside id="hud-drawer" hidden aria-label="OSDSYS Controls and Inspector">
+      <section class="hud-section" aria-labelledby="sec-modes-heading">
+        <h2 id="sec-modes-heading">Scene &amp; OSDSYS Navigation</h2>
+        <div class="mode-grid" role="group" aria-label="Scene Mode Selector">
+          <button type="button" class="btn mode-btn" data-mode="0" aria-pressed="true">
+            Mode A · Opening
+          </button>
+          <button type="button" class="btn mode-btn" data-mode="1" aria-pressed="false">
+            Mode B · Idle Towers
+          </button>
+          <button type="button" class="btn mode-btn" data-mode="2" aria-pressed="false">
+            Mode C · Illegal Disc
+          </button>
+          <button type="button" class="btn mode-btn" data-mode="3" aria-pressed="false">
+            Mode D · OSDSYS Menu
+          </button>
+        </div>
+
+        <div class="field-row">
+          <label for="boot-policy-select">After Opening</label>
+          <select id="boot-policy-select">
+            <option value="0">Enter OSDSYS Menu</option>
+            <option value="1">Enter Idle Towers</option>
+            <option value="2">Loop Opening</option>
+          </select>
+        </div>
+
+        <div class="pad-cluster" role="group" aria-label="OSDSYS Menu Pad Controls">
+          <button type="button" class="btn pad-btn" data-menu-action="0" title="ArrowUp">
+            ▲ Up
+          </button>
+          <button type="button" class="btn pad-btn" data-menu-action="1" title="ArrowDown">
+            ▼ Down
+          </button>
+          <button type="button" class="btn pad-btn" data-menu-action="2" title="ArrowLeft">
+            ◄ Left
+          </button>
+          <button type="button" class="btn pad-btn" data-menu-action="3" title="ArrowRight">
+            ► Right
+          </button>
+          <button type="button" class="btn pad-btn" data-menu-action="4" title="Enter">
+            Confirm
+          </button>
+          <button type="button" class="btn pad-btn" data-menu-action="5" title="Escape / Backspace">
+            Back
+          </button>
+          <button type="button" class="btn pad-btn" data-menu-action="6" title="Triangle / V">
+            △ Info
+          </button>
+          <button type="button" id="replay-scene-btn" class="btn" title="Restart current scene">
+            Replay
+          </button>
+        </div>
+      </section>
+
+      <section class="hud-section" aria-labelledby="sec-det-heading">
+        <h2 id="sec-det-heading">Determinism &amp; Frame Inspector</h2>
+        <div class="field-row">
+          <label for="seed-input">PRNG Seed</label>
+          <input id="seed-input" type="number" min="0" max="4294967295" step="1" value="536871684" />
+        </div>
+        <div class="inline-actions">
+          <button id="apply-seed-btn" type="button" class="btn">Apply Seed</button>
+          <button id="pause-btn" type="button" class="btn" aria-pressed="false">Pause</button>
+          <button id="step-frame-btn" type="button" class="btn">Step +1</button>
+        </div>
+        <div class="telemetry-grid" aria-live="off">
+          <div>Frame: <strong id="tel-frame">0</strong></div>
+          <div>Cam Z: <strong id="tel-camz">0.0</strong></div>
+          <div>Verts: <strong id="tel-verts">0</strong></div>
+          <div>Batches: <strong id="tel-batches">0</strong></div>
+          <div>Audio: <strong id="tel-audio">idle</strong></div>
+          <div>Frame ms: <strong id="tel-ms">0.0</strong></div>
+        </div>
+      </section>
+
+      <section class="hud-section" aria-labelledby="sec-custom-heading">
+        <h2 id="sec-custom-heading">Mode E · Customization &amp; Audio</h2>
+        <div class="field-row">
+          <label for="speed-range">Timeline Speed (<span id="speed-val">1.00</span>x)</label>
+          <input id="speed-range" type="range" min="0.25" max="2.5" step="0.05" value="1" />
+        </div>
+        <div class="field-row">
+          <label for="drift-range">Idle Drift (<span id="drift-val">1.00</span>x)</label>
+          <input id="drift-range" type="range" min="0" max="2" step="0.05" value="1" />
+        </div>
+        <div class="field-row">
+          <label for="towers-range">Memory Towers (<span id="towers-val">21</span>)</label>
+          <input id="towers-range" type="range" min="0" max="21" step="1" value="21" />
+        </div>
+        <div class="field-row">
+          <label for="res-scale-range">Render Scale (<span id="res-val">1.00</span>x)</label>
+          <input id="res-scale-range" type="range" min="0.5" max="2.0" step="0.25" value="1" />
+        </div>
+        <div class="field-row">
+          <label for="aspect-select">Screen Size</label>
+          <select id="aspect-select">
+            <option value="0">4:3 Faithful</option>
+            <option value="1">Full Viewport</option>
+            <option value="2">16:9 Widescreen</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label for="video-std-select">Video Timing</label>
+          <select id="video-std-select">
+            <option value="ntsc">NTSC (60 Hz · 224p)</option>
+            <option value="pal">PAL (50 Hz · 256p)</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label for="language-select">OSDSYS Language</label>
+          <select id="language-select">
+            <option value="0">English</option>
+            <option value="1">Français</option>
+            <option value="2">Español</option>
+            <option value="3">Deutsch</option>
+            <option value="4">Italiano</option>
+            <option value="5">Nederlands</option>
+            <option value="6">Português</option>
+          </select>
+        </div>
+        <div class="toggle-grid">
+          <label class="toggle-item"><input id="chk-fog" type="checkbox" checked /> Fog</label>
+          <label class="toggle-item"><input id="chk-refraction" type="checkbox" checked /> Refraction</label>
+          <label class="toggle-item"><input id="chk-bloom" type="checkbox" checked /> Bloom/Trails</label>
+          <label class="toggle-item"><input id="chk-banner" type="checkbox" checked /> Boot Banner</label>
+          <label class="toggle-item"><input id="chk-reduced-motion" type="checkbox" /> Reduced Motion</label>
+          <label class="toggle-item"><input id="chk-confirm-circle" type="checkbox" /> Circle Confirm</label>
+          <label class="toggle-item"><input id="chk-mute" type="checkbox" /> Mute Audio</label>
+          <label class="toggle-item"><input id="chk-canvas2d" type="checkbox" /> Force Canvas 2D</label>
+        </div>
+        <div class="field-row">
+          <label for="master-vol-range">Master Volume</label>
+          <input id="master-vol-range" type="range" min="0" max="1" step="0.05" value="0.7" />
+        </div>
+        <div class="inline-actions">
+          <button id="reset-defaults-btn" type="button" class="btn">
+            Reset Faithful Defaults
+          </button>
+        </div>
+      </section>
+
+      <section class="hud-section" aria-labelledby="sec-persist-heading">
+        <h2 id="sec-persist-heading">Assets &amp; Persistent Storage</h2>
+        <div id="asset-status-banner" class="status-banner" aria-live="polite">
+          Assets: Clean-Room Procedural (15 slots)
+        </div>
+        <div class="inline-actions">
+          <label class="file-label" for="import-asset-input">
+            Import TEXIMAGE / ROMDIR
+          </label>
+          <input
+            id="import-asset-input"
+            class="sr-only"
+            type="file"
+            accept=".bin,.rom,application/octet-stream,*/*"
+          />
+          <button id="restore-procedural-btn" type="button" class="btn">
+            Use Procedural
+          </button>
+        </div>
+
+        <div id="storage-status-banner" class="status-banner" aria-live="polite">
+          Storage: Initializing IndexedDB…
+        </div>
+        <div class="inline-actions">
+          <button id="export-settings-btn" type="button" class="btn">Export JSON</button>
+          <label class="file-label" for="import-settings-input">Import JSON</label>
+          <input
+            id="import-settings-input"
+            class="sr-only"
+            type="file"
+            accept=".json,application/json"
+          />
+          <button id="persist-storage-btn" type="button" class="btn">
+            Request Durable Storage
+          </button>
+        </div>
+        <div class="inline-actions">
+          <button id="factory-reset-btn" type="button" class="btn btn-danger">
+            Factory Reset…
+          </button>
+          <button
+            id="confirm-factory-reset-btn"
+            type="button"
+            class="btn btn-danger"
+            hidden
+          >
+            Confirm Wipe All Data
+          </button>
+        </div>
+      </section>
+    </aside>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
