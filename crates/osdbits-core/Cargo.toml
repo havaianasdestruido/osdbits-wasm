@@ -1,0 +1,11 @@
+[package]
+name = "osdbits-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Deterministic PS2 OSDSYS visual reconstruction simulation & asset engine (WASM + native)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
