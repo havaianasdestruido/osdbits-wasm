@@ -1,0 +1,9 @@
+[package]
+name = "osdbits-core"
+version = "0.1.0"
+edition = "2021"
+description = "PlayStation 2 OSDSYS deterministic simulation, resource decoder, and render command generator for WebAssembly"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]

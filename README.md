@@ -68,3 +68,70 @@ The ELF also runs under PCSX2.  Optional arguments
   lens sprites, the red glass cubes, localized text, screen fades) —
   not yet verified against the real ROM.
 - Menu/browser: notes only, see `docs/menu-rendering-reverse.md`.
+
+---
+
+# osdbits-wasm — the browser reconstruction
+
+A browser-native port of this reconstruction: the opening (towers, fog, light trails, refractive
+cubes, "Sony Computer Entertainment"), the illegal-disc warning screen, and the OSDSYS main menu
+with System Configuration — running in Rust → WebAssembly with a WebGPU renderer, Web Audio, and
+IndexedDB/OPFS persistence.
+
+**No BIOS file is required.** All default textures, fonts and sounds are original, procedurally
+generated material; the PS2 resource decoders (`expand()` LZSS, ROMDIR, the texture formats) are
+implemented and exercised by tests, and you can optionally import a BIOS image or a
+`TEXIMAGE`/`FNTIMAGE` container you dumped yourself to replace the procedural assets locally. No
+imported bytes are committed to this repository and none leave the browser tab.
+
+## Run it
+
+```bash
+npm install
+npm run dev          # http://localhost:5173 — click "Start OSDSYS" once
+```
+
+Production build:
+
+```bash
+npm run build        # typecheck + vite build → dist/
+npm run preview
+```
+
+## Controls
+
+| Input | Action |
+|---|---|
+| Arrow keys / WASD | D-pad |
+| Enter / Space | Cross (confirm outside Japan) |
+| Esc / Backspace | Circle (cancel outside Japan) |
+| Z / T | Square / Triangle |
+| F2 | Customisation panel |
+| Shift + Space | Pause |
+| Gamepad | Mapped when connected |
+
+Inside Mode D the menu is fully navigable: Browser (the memory-card history that generates the
+tower field), System Configuration (Clock Adjustment with its orb-collapse and freeze, Screen Size,
+Digital Output, Component Video Out, Language), and Version Information.
+
+## Test it
+
+```bash
+cargo test --workspace      # 25 Rust tests (math, LZSS fuzz, pad parity, scenes, text)
+npm run typecheck           # strict TypeScript
+npx vitest run              # 24 tests: real WASM module, storage, audio gesture ordering
+npm run test:e2e            # 11 Playwright tests in Chromium with a real WebGPU device
+```
+
+Everything above was executed in this environment; evidence, including the one capability this
+sandbox cannot verify (sustained GPU rendering), is in `docs/TESTING.md`.
+
+## Learn how it fits together
+
+- `docs/ARCHITECTURE-WASM.md` — layer boundaries, the original→port file map, render target model,
+  blend/depth translation, determinism guarantees.
+- `docs/LIMITATIONS.md` — what is verified, what is approximated, what is deferred, and why.
+- `docs/PHASE0-RECONNAISSANCE.md` — the audit of the original PS2 implementation this port follows.
+
+The original PS2 sources (`osdbits/`), the VU microcode sources and every analysis note in
+`docs/` are preserved unmodified as the reference implementation.

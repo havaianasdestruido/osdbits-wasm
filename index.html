@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>osdbits-wasm — PS2 OSDSYS in the browser</title>
+    <meta
+      name="description"
+      content="A faithful browser reconstruction of the PlayStation 2 OSDSYS opening, illegal-disc screen and system menu, built with Rust, WebAssembly and WebGPU."
+    />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="osd-canvas" aria-label="PlayStation 2 OSDSYS reconstruction"></canvas>
+
+      <div id="hud" class="hud" aria-live="polite"></div>
+
+      <aside id="panel" class="panel" hidden>
+        <header class="panel-head">
+          <h2>Customisation</h2>
+          <button type="button" id="panel-close" class="icon-btn" aria-label="Close customisation panel">
+            ×
+          </button>
+        </header>
+        <div class="panel-body" id="panel-body"></div>
+      </aside>
+
+      <div id="overlay" class="overlay">
+        <div class="overlay-card">
+          <p class="eyebrow">osdbits-wasm</p>
+          <h1>PlayStation&nbsp;2&nbsp;OSDSYS</h1>
+          <p class="lede">
+            The boot animation, the illegal-disc warning and the system menu — reconstructed from
+            <code>aap/osdbits</code> in Rust, WebAssembly and WebGPU. No BIOS file required.
+          </p>
+
+          <ul class="capabilities" id="capabilities">
+            <li data-cap="webgpu">WebGPU</li>
+            <li data-cap="wasm">WebAssembly</li>
+            <li data-cap="storage">IndexedDB</li>
+            <li data-cap="audio">Web Audio</li>
+          </ul>
+
+          <div class="overlay-actions">
+            <button type="button" id="start-btn" class="primary">Start OSDSYS</button>
+            <label class="resume-toggle">
+              <input type="checkbox" id="resume-settings" checked />
+              Restore my saved settings
+            </label>
+          </div>
+
+          <p class="fineprint" id="overlay-status">
+            Click once to unlock audio and start rendering. Audio needs that gesture; rendering
+            starts immediately afterwards.
+          </p>
+          <p class="fineprint legal">
+            Fan reconstruction for preservation. Contains no Sony firmware, BIOS dumps or extracted
+            retail assets. Optional resource import uses files you supply.
+          </p>
+        </div>
+      </div>
+
+      <dialog id="import-dialog" class="dialog">
+        <form method="dialog" class="dialog-body">
+          <h2>Import a BIOS image or resource container</h2>
+          <p>
+            Optional. Selecting a PS2 boot ROM you dumped from your own console (or a bare
+            <code>TEXIMAGE</code> / <code>FNTIMAGE</code> container) replaces the built-in procedural
+            textures and fonts with the ones decoded from that image. Nothing is uploaded anywhere —
+            decoding happens in this tab and the result is stored locally.
+          </p>
+          <input type="file" id="import-file" accept=".bin,.rom,.img,.BIN,.ROM,.IMG,application/octet-stream" />
+          <p class="fineprint" id="import-status"></p>
+          <menu>
+            <button type="button" id="import-cancel" class="ghost">Cancel</button>
+            <button type="button" id="import-confirm" class="primary">Import</button>
+          </menu>
+        </form>
+      </dialog>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

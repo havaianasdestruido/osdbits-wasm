@@ -1,0 +1,30 @@
+{
+  "name": "osdbits-wasm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-native Rust/WASM + WebGPU + Web Audio + IndexedDB/OPFS reconstruction of the PlayStation 2 OSDSYS visual experience",
+  "scripts": {
+    "build:wasm": "cargo build --manifest-path Cargo.toml --package osdbits-core --target wasm32-unknown-unknown --release && mkdir -p public/wasm && cp target/wasm32-unknown-unknown/release/osdbits_core.wasm public/wasm/osdbits_core.wasm",
+    "dev": "npm run build:wasm && vite --host 0.0.0.0 --port 5173",
+    "build": "npm run build:wasm && tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "typecheck": "tsc --noEmit",
+    "lint:rust": "cargo clippy --workspace --all-targets -- -D warnings",
+    "test:rust": "cargo test --workspace",
+    "test:unit": "npm run build:wasm && vitest run",
+    "test:e2e": "npm run build:wasm && playwright test",
+    "test": "npm run test:rust && npm run typecheck && npm run test:unit && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.0",
+    "@types/node": "^22.13.0",
+    "@webgpu/types": "^0.1.54",
+    "fake-indexeddb": "^6.0.0",
+    "pngjs": "^7.0.0",
+    "@types/pngjs": "^6.0.5",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.7"
+  }
+}
