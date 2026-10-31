@@ -25,7 +25,7 @@ npm run build     # Builds production static bundle into dist/
 npm run check:all # Runs legal, Rust/fuzz, TS, Vitest, WGSL, WebGPU E2E, visual, perf & prod suites
 ```
 
-Click **Start OSDSYS** once to synchronously unlock Web Audio (`AudioContext.resume()`) and enter the live WebGPU scene immediately.
+Click **Start OSDSYS** once to synchronously unlock Web Audio (`AudioContext.resume()`) and enter the live WebGPU scene immediately. If WebGPU is unavailable, **Proceed anyway (Canvas 2D)** runs the same WASM simulation with a reduced-fidelity renderer (GPU refraction, feedback, and blur effects are omitted).
 
 ## Documentation
 
