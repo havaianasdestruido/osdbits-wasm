@@ -11,19 +11,29 @@
 | WASM build | `cargo build --offline --target wasm32-unknown-unknown --release` | builds, size recorded |
 | WASM smoke | `node scripts/wasm-smoke.mjs` | all checks pass (ABI, layout, determinism, bounds, PAL, errors) |
 | TypeScript types | `npx tsc --noEmit` | clean, `strict: true` |
-| Web unit/integration | `npx vitest run` | 56 tests pass, including 10 against the real wasm |
+| Web unit/integration | `npx vitest run` | 68 tests pass: 12 against the real wasm, 6 booting the real app in jsdom, 4 rasterising the Canvas 2D path with `@napi-rs/canvas` |
+| Boot wiring | `npx vitest run tests/boot.test.ts` | the real `App` boots against the real `index.html`; a broken element id fails here instead of in a browser |
 | Production build | `npx vite build` | succeeds; bundle size recorded |
 | Asset guard | `bash scripts/check-no-proprietary-assets.sh` | no proprietary files tracked |
 | Upstream guard | `bash scripts/check-upstream-untouched.sh` | upstream C sources byte-identical |
-| Browser E2E | `npx playwright test` | **not run here** (no browser binaries) |
+| Browser E2E | `npx playwright test` | runs in CI (blocking): 51 passed / 0 failed / 3 skipped; cannot run in this sandbox |
 
 ## CI
 
-`.github/workflows/ci.yml` splits CPU-only work (core, wasm, web) from
-GPU-dependent work (the Playwright job), which is marked
-`continue-on-error: true` and uploads traces. It has not executed on GitHub from
-this sandbox; the same commands were run locally and recorded in
-`docs/TEST-EVIDENCE.md`.
+`.github/workflows/ci.yml` runs five jobs: `core` (fmt, clippy, tests, property
+campaigns), `wasm` (build + Node smoke, artefact uploaded), `web` (typecheck,
+vitest, production bundle), `guards` (upstream untouched, no proprietary assets)
+and `e2e` (Playwright on Chromium, Firefox and WebKit). All five are blocking;
+the E2E job passes on GPU-less runners because the specs assert the documented
+fallback path and only skip the adapter-specific cases.
+
+Failures are surfaced through annotations, so a run is diagnosable from the
+checks API alone (this sandbox cannot download job logs or artifacts):
+
+* `web/scripts/e2e-live-reporter.mjs` — a Playwright reporter that emits
+  `::error file=…::<project> › <title> — <first error line>` while tests run.
+* `web/scripts/e2e-summary.mjs` — re-reads the JSON report afterwards and emits
+  the same for anything the live reporter missed, plus a totals notice.
 
 ## Test design rules
 

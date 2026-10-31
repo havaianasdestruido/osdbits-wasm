@@ -96,10 +96,9 @@ jobs:
     name: Browser E2E (capability-gated)
     runs-on: ubuntu-latest
     needs: [wasm, web]
-    # A GPU (or at least a software adapter) may be unavailable on runners, and
-    # the specs assert either the WebGPU or the documented fallback path, so a
-    # failure here is reported but does not block the CPU gates.
-    continue-on-error: true
+    # Blocking: the specs assert the documented fallback path when no WebGPU
+    # adapter exists, so they pass on GPU-less runners (54 tests, 3 skipped for
+    # the adapter-only case). A red job here means a real browser regression.
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88.0

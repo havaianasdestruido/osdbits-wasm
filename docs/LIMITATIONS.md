@@ -27,10 +27,10 @@ work.
 |---|---|---|
 | Rust unit/property tests, clippy, fmt | Verified | Commands and output in `docs/TEST-EVIDENCE.md`. |
 | WASM artefact instantiated from Node | Verified | `scripts/wasm-smoke.mjs`: 40+ checks including determinism. |
-| TypeScript typecheck, unit/integration tests | Verified | `tsc --noEmit`, 56 Vitest tests (10 of them against the real wasm). |
+| TypeScript typecheck, unit/integration tests | Verified | `tsc --noEmit`, 68 Vitest tests (12 against the real wasm, 6 booting the real app in jsdom, 4 rasterising the compatibility renderer). |
 | Production bundle builds | Verified | `vite build` output recorded. |
 | Real WebGPU rendering | Blocked | No GPU/browser binary in the development sandbox. The renderer is **unverified on hardware**; the compatibility renderer is the only executed path. |
-| Browser E2E (Chromium/Firefox/WebKit) | Blocked (`D-009`) | Playwright specs are committed but have never run here. |
+| Browser E2E (Chromium/Firefox/WebKit) | Verified in CI, Blocked here | 51 passed / 0 failed / 3 skipped (the adapter-only cases) on GitHub Actions run `41245351478`; the job is blocking. No browser binaries can be installed in the development sandbox, so the suite never ran locally. |
 | Visual regression against GS dumps | Blocked (`D-008`) | No authorised captures. |
 | Audio output | Blocked | Cannot be heard or measured here; the synthesis path is unit-checked only for capability detection. |
 | Performance budgets in a browser | Partial | Core frame cost measured under Node (`p50 0.001 ms`, `p95 0.3 ms` for step+draw); GPU frame time unmeasured. |
@@ -43,8 +43,16 @@ work.
 * The boot sequence ends once the core latches `openingType == 2`; the app then
   keeps the last frame and offers restart / idle / illegal from the toolbar.
   An idle scene (mode B) never ends.
-* Reduced motion freezes the camera (`camera_motion = false`) but keeps the fog,
-  light and cube animation alive; it also stops simulation stepping while the
-  tab is hidden.
+* Reduced motion sets `camera_motion = false`, which holds the camera pose in
+  every scene — including the opening's scripted ascent, which is driven by the
+  same integrator — while the fog, light, cube and text animation keeps running.
+  Pinned by two Rust tests and two wasm parity tests.
+* The core snapshots its options in `osd_init()` (`osd_set_option()` only writes
+  the global copy), so changing any simulation option restarts the scene. The
+  shell waits for the stored settings before starting the first scene, so the
+  first frame is identical to a reloaded one.
 * `prefers-reduced-motion` is honoured by defaulting `reducedMotion` on first
   run; the user can override it.
+* Hiding the tab suspends audio. The simulation stops because the browser
+  throttles `requestAnimationFrame` (not because of our code), and the loop
+  clamps the elapsed time on return so it does not fast-forward.

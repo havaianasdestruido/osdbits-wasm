@@ -76,15 +76,23 @@ $ cd web && npx tsc --noEmit
 (no output)                                    # strict: true, 0 errors
 
 $ npx vitest run
-Test Files  6 passed (6)
-     Tests  56 passed (56)
+Test Files  8 passed (8)
+     Tests  68 passed (68)
 ```
 
-The 56 tests are: `frame.test.ts` 14 (parser + malformed input), `settings.test.ts`
+The 68 tests are: `frame.test.ts` 14 (parser + malformed input), `settings.test.ts`
 11, `storage.test.ts` 8, `textures.test.ts` 7, `menu.test.ts` 7,
-`wasm.parity.test.ts` 10 (against the real wasm module: ABI, determinism, frame
+`wasm.parity.test.ts` 12 (against the real wasm module: ABI, determinism, frame
 parsing, bounds, idle/boot ending, options, pass table, error reporting, events,
-menu-mode frame).
+menu-mode frame, camera-motion option semantics), `boot.test.ts` 6 (the real
+`App` booted inside jsdom against the real `index.html` and the compiled wasm)
+and `canvas2d.test.ts` 4 (the compatibility renderer rasterised by
+`@napi-rs/canvas`, i.e. real pixels, see below).
+
+`canvas2d.test.ts` is the only place the compatibility renderer runs against a
+real rasteriser outside a browser; it asserts the opening scene is non-blank
+(luminance variance > 4), PAL is 640x256, the illegal scene has red-dominant
+pixels, and a scene with every optional layer off still renders.
 
 ```text
 $ npx vite build
@@ -92,15 +100,42 @@ vite v7.3.7 building client environment for production...
 ✓ 17 modules transformed.
 dist/index.html                  4.35 kB │ gzip:  1.54 kB
 dist/assets/index-*.css          5.11 kB │ gzip:  1.87 kB
-dist/assets/index-*.js          53.75 kB │ gzip: 18.65 kB │ map: 185.77 kB
-✓ built in 329ms
+dist/assets/index-*.js          54.40 kB │ gzip: 18.78 kB │ map: 187.32 kB
+✓ built in 354ms
 ```
+
+## Browser end-to-end (GitHub Actions, not this sandbox)
+
+This sandbox cannot download browser binaries (see the table below), so the
+Playwright suite runs in CI on every push: Chromium, Firefox and WebKit, the
+full app, no GPU.
+
+| | |
+|---|---|
+| Workflow run | `41245351478` (commit `70420c8`) |
+| Result | **51 passed, 0 failed, 3 skipped** in 62 s; job `success` |
+| Skipped | the three "WebGPU is used when the browser has an adapter" cases — runners have no adapter, which the app reports as a fallback |
+| Renderer exercised | compatibility (Canvas 2D) — the same path most visitors without WebGPU get |
+| Artifacts | `playwright-report` + `test-results` uploaded by the workflow |
+
+The job is blocking as of that run. Failures are surfaced twice: the specs emit
+`::error` annotations through `web/scripts/e2e-live-reporter.mjs` while running,
+and `web/scripts/e2e-summary.mjs` re-reads the JSON report afterwards.
+
+Earlier runs of the same suite (also in CI, recorded rather than hidden):
+
+| Run | Result | What it exposed |
+|---|---|---|
+| `41233750163` | E2E failed | job wiring; failure detail not readable from here |
+| `41242974408` | 0 passed / 51 failed | `$("#start")` → `getElementById("#start")`, i.e. the app never booted in any browser |
+| `41244797275` | 45 passed / 3 failed | settings race on activation, clobbered capability text, reduced-motion semantics |
+
 
 ## Repository guards
 
 ```text
 $ bash scripts/check-no-proprietary-assets.sh
-ok: no proprietary assets tracked (141 files checked)
+ok: no proprietary assets tracked (206 files checked)
 
 $ bash scripts/check-upstream-untouched.sh
 ok: 23 upstream files are byte-identical to ea0c68712b28b36fe033ed4fe488d86958de53d2
@@ -124,8 +159,8 @@ $ curl ... /src/style.css    -> 200 7415
 
 | Suite | Status | Reason |
 |---|---|---|
-| `npx playwright test` (Chromium/Firefox/WebKit) | **Blocked** | No browser binaries; downloads from `cdn.playwright.dev` / `objects.githubusercontent.com` fail with HTTP 000 in this sandbox. The specs are committed. |
-| WebGPU rendering on hardware | **Blocked** | No GPU adapter, no browser. The compatibility renderer is the only rendering path executed anywhere so far, and even it could not be exercised in a browser here. |
+| `npx playwright test` **in this sandbox** | **Blocked** | No browser binaries; downloads from `cdn.playwright.dev` / `objects.githubusercontent.com` fail with HTTP 000. Executed in CI instead (section above). |
+| WebGPU rendering on hardware | **Blocked** | No GPU adapter here, and the CI runners report none either. The WebGPU path is unit-typed, shader-checked by review, and exercised only in the adapter-gated test, which skips. Never claimed as verified. |
 | Audio output | **Blocked** | Nothing to play it through; only capability detection is unit-exercised. |
 | Visual regression | **Deferred** | Depends on the two rows above; tolerances specified in `docs/QA.md`. |
 | Original PS2 build (`ee-gcc`/`ee-dvp-as`) | **Blocked** | Toolchain and SDK absent; upstream's own build is unmodified and untouched. |
@@ -142,3 +177,13 @@ $ curl ... /src/style.css    -> 200 7415
    a regression test.
 5. The synthetic frame builder in `frame.test.ts` confused *header indices* with
    *section offsets* twice; both mistakes are now commented in the test helper.
+6. **Application bugs found by the CI browser job** (none of them were reachable
+   from this sandbox, which is why the browser job exists):
+
+   | Symptom | Root cause | Fix |
+   |---|---|---|
+   | 51/51 E2E failures: the page never left the "loading" state | `$("#start")` passed a CSS selector to `getElementById`, so `App`'s field initialiser threw `missing element ##start` before `boot()` ran | bare element ids; `web/tests/boot.test.ts` now boots the real app in jsdom |
+   | The renderer used defaults on the first frame if storage resolved late | `onStart()` read `this.settings` without awaiting the storage chain | `await this.settingsReady` inside the gesture, after audio is resumed |
+   | Firefox: "core unavailable" text vanished after a fatal core failure | the late storage resolution called `setCapabilities()`, overwriting the failure line | `setCapabilities()` keeps the failure text when there is no core |
+   | WebKit/Firefox: reduced motion did not hold the camera | the option is applied at scene init; the failing runs were the ones where the click beat the settings load (same race as above) | fixed by the settings await; semantics now pinned by 2 Rust + 2 wasm tests |
+   | Light trails were offset by twice their thickness | the screen-sprite shader re-expanded CPU-built quads | dedicated absolute-screen-triangle mode (mode 3) |

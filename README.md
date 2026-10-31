@@ -36,6 +36,7 @@ across reloads (IndexedDB → localStorage → memory, reported honestly in the 
 | Mode D — menu | Keyboard-accessible OSDSYS-*inspired* menu (explicitly **not** a browser/memory-card/game-list reconstruction) |
 | Mode E — customisation | Scene, camera motion, speed, quality/resolution, fog/lights/cubes/text, audio, reduced motion, letterbox, seed, simulated hardware state, reset |
 | Resilience | WebGPU → Canvas 2D fallback without reload; device-loss recovery; corrupt-settings recovery; explicit unsupported-browser messaging |
+| Tests | 132 Rust unit + 4 property campaigns, 68 TypeScript tests (12 against the compiled wasm, 6 booting the app in jsdom, 4 rasterising the Canvas 2D path), 17 Playwright specs across three engines |
 
 Every scene is driven by one deterministic simulation (`crates/osdbits-core`), so
 the same seed and settings produce the same frames, and the frame hash shown in
@@ -44,14 +45,20 @@ Diagnostics changes only when the simulation does.
 ## Verify it
 
 ```bash
-cd crates/osdbits-core && cargo test --offline          # 131 unit tests
+cd crates/osdbits-core && cargo test --offline          # 132 unit tests
 cargo test --offline --test properties                  # 4 seeded campaigns
 cargo clippy --offline --all-targets -- -D warnings
 bash ../../scripts/build-wasm.sh && node ../../scripts/wasm-smoke.mjs
-cd ../../web && npx tsc --noEmit && npx vitest run      # 56 tests (10 vs real wasm)
+cd ../../web && npx tsc --noEmit && npx vitest run      # 68 tests (12 vs real wasm)
+npx playwright test                                     # 17 specs × Chromium/Firefox/WebKit
 bash ../scripts/check-no-proprietary-assets.sh
 bash ../scripts/check-upstream-untouched.sh
 ```
+
+The Playwright suite cannot run without browser binaries, so CI runs it on every
+push as a blocking job. Last recorded result: **51 passed, 0 failed, 3 skipped**
+(the three adapter-only WebGPU cases) across Chromium, Firefox and WebKit — see
+`docs/TEST-EVIDENCE.md` for the run id.
 
 Exact commands, versions, outputs and the list of things that could **not** be
 executed here (no browser binary, no GPU) are in `docs/TEST-EVIDENCE.md`. The

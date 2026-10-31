@@ -58,16 +58,21 @@ Evidence for every `[x]` below is reproduced in `docs/TEST-EVIDENCE.md`
 | `P07-002` | `[x]` | `web/src/settings.ts` + `tests/settings.test.ts` (11 tests) |
 | `P07-005` | `[x]` | corrupt-record + fallback tests in `tests/storage.test.ts`; memory-store degradation |
 | `P08-001` | `[x]` | `web/src/menu.ts` + `tests/menu.test.ts` (7 tests) |
-| `P10-001` | `[x]` | `cargo test` → 131 lib tests |
+| `P10-001` | `[x]` | `cargo test` → 132 lib tests |
 | `P10-002` | `[x]` | `cargo test --test properties` |
 | `P10-003` | `[x]` | `scripts/wasm-smoke.mjs` (40 checks) + `web/tests/wasm.parity.test.ts` |
-| `P10-004` | `[x]` | `npx vitest run` → 56 tests |
+| `P10-004` | `[x]` | `npx vitest run` → 68 tests in 8 files (incl. real-wasm parity, jsdom boot, Skia-rasterised Canvas 2D) |
 | `P11-004` | `[x]` | asset audit script (executed) |
 | `P11-006` | `[x]` | `docs/ARCHITECTURE.md`, `PORTING-NOTES.md`, `WASM-ABI.md`, `QA.md`, `ASSET-POLICY.md`, `LIMITATIONS.md` |
 | `P11-007` | `[x]` | `docs/LIMITATIONS.md` (status vocabulary on every line) |
+| `P06-005` | `[x]` | `web/tests/boot.test.ts` (6) + `web/playwright/resilience.spec.ts`; E2E pass in CI |
+| `P06-006` | `[x]` | `web/playwright/startup.spec.ts`; CI run `41245351478` |
+| `P10-005` | `[x]` | `npm run e2e` in CI — 51 passed / 0 failed / 3 skipped (adapter-only), blocking job |
 
-Implemented but **not verifiable here** (`[~]`): everything that needs a
-browser, a GPU or audio output, plus the CI workflow itself.
+Implemented but **not verifiable here** (`[~]`): everything that needs a real
+GPU, audio output, or a browser binary *in this sandbox*. The Playwright suite
+itself was executed in CI (see `docs/TEST-EVIDENCE.md`); only hardware GPU
+rendering, audible audio and visual-regression baselines remain unverified.
 
 ## Phase 0 — Repository reconnaissance and baseline
 
@@ -369,16 +374,21 @@ browser, a GPU or audio output, plus the CI workflow itself.
     restart rebuilds cleanly.
   - Tests: visibility simulation unit tests, E2E restart.
 
-- [~] `P06-005` — Unsupported-capability messaging (no WebGPU, no WASM, no
+- [x] `P06-005` — Unsupported-capability messaging (no WebGPU, no WASM, no
     audio, no storage) with degraded but honest modes.
   - Acceptance: each case yields specific text and no crash.
-  - Tests: capability-injection tests.
+  - Tests: `web/tests/boot.test.ts` (core failure, storage fallback),
+    `web/playwright/resilience.spec.ts` (forced adapter failure, missing core).
+  - Evidence: vitest 6 boot tests; E2E pass on three engines in CI.
 
-- [~] `P06-006` — E2E startup suite (Chromium): activation → WASM → render →
-    animation advances → settings persist.
-  - Acceptance: passes headlessly in the sandbox where a browser is
-    available; GPU-less runs assert the documented fallback path instead.
-  - Tests: `web/tests/e2e/*.spec.ts`.
+- [x] `P06-006` — E2E startup suite (all three engines): activation → WASM →
+    render → animation advances → settings persist.
+  - Acceptance: passes headlessly on GPU-less runners by asserting the
+    documented fallback path; adapter-only assertions are skipped.
+  - Tests: `web/playwright/startup.spec.ts`.
+  - Evidence: CI run `41245351478`, 51 passed / 0 failed / 3 skipped
+    (Chromium + Firefox + WebKit). Never executed in the development sandbox
+    (no browser binaries) — see `docs/TEST-EVIDENCE.md`.
 
 ## Phase 7 — Persistent storage and resource management
 
@@ -495,10 +505,12 @@ browser, a GPU or audio output, plus the CI workflow itself.
   - Acceptance: meaningful assertions on success *and* failure paths.
   - Tests: `npm test` (+ coverage report).
 
-- [~] `P10-005` — Browser E2E (Playwright) covering the full journey and the
+- [x] `P10-005` — Browser E2E (Playwright) covering the full journey and the
     capability-specific paths.
-  - Acceptance: suite runs; GPU assertions gated on actual adapter presence.
-  - Tests: `npm run test:e2e`.
+  - Acceptance: suite runs in CI as a blocking job; GPU assertions gated on
+    actual adapter presence; failures surface as checks-API annotations.
+  - Tests: `npm run e2e` (17 specs × 3 engines).
+  - Evidence: CI run `41245351478` — 51 passed, 0 failed, 3 skipped, 62 s.
 
 - [ ] `P10-006` — Visual regression with deterministic frames and documented
     tolerances.
