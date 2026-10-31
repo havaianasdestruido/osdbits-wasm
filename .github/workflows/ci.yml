@@ -26,14 +26,12 @@ jobs:
       - run: npm run typecheck
       - run: npx vitest run
       - run: npm run build
+      # Rules live in scripts/check-firmware.mjs so that
+      # tests/unit/ci-firmware-guard.test.ts can assert both directions:
+      # firmware/extracted resources fail, and the VU microcode provenance
+      # (vucode_*.vu, vucode_*.vsm) is never mistaken for an extracted resource.
       - name: reject proprietary firmware in the tree
-        run: |
-          if git ls-files | grep -Ei '\.(bin|rom|iso|p2s|idb)$'; then
-            echo "::error::proprietary firmware or savestate tracked in git"; exit 1
-          fi
-          if git ls-files | grep -E '^osdbits/res/|^vucode_[0-9]'; then
-            echo "::error::extracted Sony resources tracked in git"; exit 1
-          fi
+        run: git ls-files | node scripts/check-firmware.mjs
 
   gpu:
     name: gpu gates (playwright + webgpu)

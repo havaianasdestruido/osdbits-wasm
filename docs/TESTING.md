@@ -42,7 +42,7 @@ npm run build:wasm
 npx vitest run tests/unit/wasm.test.ts
 ```
 
-Result: **9 passed**. Asserts the artifact exists, `WebAssembly.validate` passes, the full ABI is
+Result: **10 passed**. Asserts the artifact exists, `WebAssembly.validate` passes, the full ABI is
 present, the 25 textures have their documented dimensions, every mode emits a well-formed command
 stream (first command a clear, all draws triangle-aligned and in range), the opening reaches the
 menu and emits `StBgmPlay`/`StSetReverbDepth`, the region-swapped pad drives the menu correctly,
@@ -136,9 +136,34 @@ Tried with `--use-webgpu-adapter=swiftshader`, `--enable-features=Vulkan --use-v
 3 frames. Consequences are documented in `docs/LIMITATIONS.md` §3: sustained-rendering,
 visual-regression-against-reference and frame-time-percentile claims are **not** made.
 
+## 5b. Repository hygiene guard (firmware / extracted resources)
+
+```
+git ls-files | node scripts/check-firmware.mjs
+npx vitest run tests/unit/ci-firmware-guard.test.ts
+```
+
+`scripts/check-firmware.mjs` is the rule CI enforces: no firmware images, savestates, PCSX2
+symbol databases, or resources extracted from a BIOS. It exists as an importable module rather
+than an inline regex precisely so it can be tested in both directions.
+
+Result: **17 passed**. The tests assert that a contaminated tree is rejected (`bios.bin`,
+`BIOS.BIN`, `scph10000.bin`, `state.p2s`, `SCPH10000.idb`, `game.iso`, `res/TEX0000.bin`,
+`res/FNTIMAGE.tmx`, `assets/ICO0042.img`, anything under `osdbits/res/`), that every offending
+file is reported rather than just the first, and — the regression this section was added for —
+that the files the project is *required* to preserve are **not** flagged: all twelve
+`vucode_*.vu` / `vucode_*.vsm` microcode files, the C reconstruction, `ps2expand.c`, the
+extraction tool and the analysis notes.
+
+The guard run against the actual tracked tree prints
+`firmware guard: clean (<n> tracked files)` and exits 0. A previous inline version of this rule
+(`^osdbits/res/|^vucode_[0-9]`) matched the preserved VU microcode and failed CI on a clean tree;
+that is what the unit test now prevents.
+
 ## 6. Full gate
 
 ```
 npm run build:wasm && cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings &&
-cargo test --workspace && npm run typecheck && npx vitest run && npx playwright test && npm run build
+cargo test --workspace && npm run typecheck && npx vitest run && npx playwright test && npm run build &&
+git ls-files | node scripts/check-firmware.mjs
 ```
