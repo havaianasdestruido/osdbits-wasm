@@ -1,0 +1,24 @@
+[package]
+name = "osdbits-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Deterministic simulation core of osdbits-wasm: a browser reconstruction of the PS2 OSDSYS opening/illegal-disc scenes"
+license = "MIT OR Apache-2.0"
+
+[lib]
+# cdylib = the wasm32 artefact loaded by the browser shell
+# rlib   = native unit/property tests and documentation builds
+crate-type = ["cdylib", "rlib"]
+
+# Deliberately EMPTY: the build environment has no crates.io access, and the
+# core must stay portable. See docs/ARCHITECTURE.md. Do not add dependencies
+# without updating that document and the bootstrap story.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
