@@ -7,11 +7,17 @@ import { defineConfig, devices } from "@playwright/test";
 // locally — docs/TEST-EVIDENCE.md records exactly where each one ran.
 export default defineConfig({
   testDir: "./playwright",
-  timeout: 60_000,
-  expect: { timeout: 10_000 },
+  timeout: 30_000,
+  expect: { timeout: 8_000 },
   fullyParallel: false,
   retries: 0,
-  reporter: [["list"], ["json", { outputFile: "test-results/report.json" }]],
+  reporter: [
+    ["list"],
+    ["json", { outputFile: "test-results/report.json" }],
+    // Streams results as ::error annotations, so a CI failure is readable
+    // through the checks API within seconds (scripts/e2e-live-reporter.mjs).
+    ["./scripts/e2e-live-reporter.mjs"],
+  ],
   use: {
     baseURL: "http://127.0.0.1:5173",
     trace: "retain-on-failure",
