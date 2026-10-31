@@ -112,11 +112,12 @@ full app, no GPU.
 
 | | |
 |---|---|
-| Workflow run | `41245351478` (commit `70420c8`) |
-| Result | **51 passed, 0 failed, 3 skipped** in 62 s; job `success` |
+| Workflow run | `41245700225` (commit `418caad`) — the E2E job is blocking in this run |
+| Result | **51 passed, 0 failed, 3 skipped** in 49 s; all five jobs `success` |
 | Skipped | the three "WebGPU is used when the browser has an adapter" cases — runners have no adapter, which the app reports as a fallback |
 | Renderer exercised | compatibility (Canvas 2D) — the same path most visitors without WebGPU get |
 | Artifacts | `playwright-report` + `test-results` uploaded by the workflow |
+| Earlier green run | `41245351478` (commit `70420c8`): same result, 62 s, job still `continue-on-error` |
 
 The job is blocking as of that run. Failures are surfaced twice: the specs emit
 `::error` annotations through `web/scripts/e2e-live-reporter.mjs` while running,
