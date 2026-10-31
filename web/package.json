@@ -1,0 +1,25 @@
+{
+  "name": "osdbits-wasm-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser shell for the osdbits-wasm reconstruction: WebGPU renderer, WASM simulation core, IndexedDB persistence.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "wasm:build": "bash ../scripts/build-wasm.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.6",
+    "@webgpu/types": "^0.1.66",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.4"
+  }
+}
