@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: ['master', 'main', 'arena/**']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_hardware_gpu:
+        description: 'Run physical hardware GPU Playwright gate (requires self-hosted GPU runner)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-and-swiftshader:
+    name: Rust/WASM, TypeScript, Hygiene, Endurance & Dawn SwiftShader E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain & wasm32 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Playwright Chromium & system libs
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify clean-room repository hygiene (zero Sony BIOS/ROM files)
+        run: npm run check:hygiene
+
+      - name: Format, Clippy (-D warnings), and Rust unit/property/fuzz tests
+        run: npm run check:rust
+
+      - name: Build WASM + TypeScript typecheck + Vite static dist bundle
+        run: npm run build
+
+      - name: ESLint strict check
+        run: npm run lint
+
+      - name: Vitest TypeScript unit & fake-indexeddb integration suite
+        run: npm run test:unit
+
+      - name: Vitest real WASM boundary & determinism suite
+        run: npm run test:wasm
+
+      - name: WASM binary size & 1,200-frame zero-leak endurance benchmark
+        run: npm run test:perf
+
+      - name: Playwright E2E, browser-restart persistence & visual regression (Dawn SwiftShader + Canvas 2D)
+        run: npm run test:e2e
+
+      - name: Upload static production bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: osdbits-wasm-dist
+          path: dist/
+          retention-days: 7
+
+  hardware-gpu:
+    name: Physical Hardware GPU WebGPU Gate (isFallbackAdapter === false)
+    if: ${{ vars.ENABLE_HARDWARE_GPU_RUNNER == '1' || inputs.run_hardware_gpu == true }}
+    runs-on: [self-hosted, linux, gpu]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain & wasm32 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Execute physical hardware WebGPU Playwright gate
+        run: npm run test:e2e:hardware-gpu
