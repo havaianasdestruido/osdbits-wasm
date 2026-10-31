@@ -25,7 +25,7 @@ npm run build     # Builds production static bundle into dist/
 npm run check:all # Runs legal, Rust/fuzz, TS, Vitest, WGSL, WebGPU E2E, visual, perf & prod suites
 ```
 
-Click **Start OSDSYS** once to synchronously unlock Web Audio (`AudioContext.resume()`) and enter the live WebGPU scene immediately. If WebGPU is unavailable, **Proceed anyway (Canvas 2D)** runs the same WASM simulation with a reduced-fidelity renderer (GPU refraction, feedback, and blur effects are omitted).
+The page is only the application: one fullscreen canvas, with every control drawn inside it (UILess `no-ui-browser-apps`). Click or press Enter on **START OSDSYS** once to synchronously unlock Web Audio (`AudioContext.resume()`) and enter the live WebGPU scene immediately. If WebGPU is unavailable, the title offers **PROCEED WITH CANVAS 2D**, which runs the same WASM simulation with a reduced-fidelity renderer (GPU refraction, feedback, and blur effects are omitted). Keys and the Mode E options are described in [`docs/uiless-presentation.md`](docs/uiless-presentation.md).
 
 ## Documentation
 
@@ -35,6 +35,7 @@ Click **Start OSDSYS** once to synchronously unlock Web Audio (`AudioContext.res
 - [Fidelity & Parameter Provenance Matrix (`docs/fidelity-and-provenance.md`)](docs/fidelity-and-provenance.md)
 - [Legal Policy, Clean-Room Assets & Optional Local Resource Import (`docs/legal-and-assets.md`)](docs/legal-and-assets.md)
 - [Testing, Visual Regression Tolerances & Deployment Guide (`docs/testing-and-deployment.md`)](docs/testing-and-deployment.md)
+- [UILess In-App Presentation: Controls, Options & Accessibility (`docs/uiless-presentation.md`)](docs/uiless-presentation.md)
 
 ---
 

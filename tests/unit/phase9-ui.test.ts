@@ -9,8 +9,8 @@ import { WasmSimulationBridge } from "../../web/src/wasm/bridge";
 
 const WASM_PATH = resolve(process.cwd(), "web/public/wasm/osdbits_wasm.wasm");
 
-describe("Phase 9 — UI Shell Accessibility, prefers-reduced-motion & Asset Validation Error Handling", () => {
-  it("mounts accessible ARIA controls, honors prefers-reduced-motion on first boot, and handles invalid local asset files cleanly", async () => {
+describe("Phase 9 — UILess shell: at-rest surface, in-app accessibility, prefers-reduced-motion & asset validation", () => {
+  it("draws every control in-app, keeps only the application in the DOM, honors prefers-reduced-motion, and rejects invalid local asset files cleanly", async () => {
     document.body.innerHTML = `
       <div id="app">
         <canvas id="osdbits-canvas" width="640" height="480"></canvas>
@@ -46,23 +46,31 @@ describe("Phase 9 — UI Shell Accessibility, prefers-reduced-motion & Asset Val
 
       // Verify prefers-reduced-motion propagated automatically on rev-0 boot
       expect(app.getSettings().reducedMotion).toBe(true);
-      expect((document.getElementById("cfg-reduced-motion") as HTMLInputElement).checked).toBe(
-        true,
-      );
 
-      // Verify ARIA roles & labels
-      expect(document.getElementById("launch-overlay")?.getAttribute("role")).toBe("dialog");
-      expect(document.getElementById("customize-drawer")?.getAttribute("role")).toBe("dialog");
-      expect(document.getElementById("hud-toolbar")?.getAttribute("aria-label")).toBe(
-        "Scene Controls",
+      // At rest the DOM holds only the canvas and a visually hidden status line: no controls.
+      expect(document.body.querySelectorAll("button, input, select, label, nav, header, footer, aside").length).toBe(0);
+      // A failed WebGPU attempt may swap in a fresh canvas element so 2D can be claimed; look it up by id.
+      const liveCanvas = document.getElementById("osdbits-canvas") as HTMLCanvasElement;
+      expect(liveCanvas.getAttribute("aria-label")).toBeTruthy();
+      expect(liveCanvas.getAttribute("role")).toBe("application");
+      const visibleChildren = Array.from(appEl.children).filter(
+        (el) => el.tagName !== "CANVAS" && !el.classList.contains("sr-only"),
       );
+      expect(visibleChildren).toEqual([]);
+
+      // Every control is drawn in-app. The title is drawn on the first composed frame.
+      await waitFor(() => app.getDrawnUiText().length > 0);
+      const drawn = app.getDrawnUiText().join(" | ").toLowerCase();
+      expect(drawn).toContain("webgpu unavailable");
+      expect(drawn).toContain("proceed with canvas 2d");
+      expect(app.uiHitCenter("title-canvas2d")?.enabled).toBe(true);
+      expect(app.uiHitCenter("title-start")).toBeNull();
 
       // Simulate selecting an invalid/corrupt local resource file -> non-crashing rejection message
       const bogusBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]);
       const ok = await app.importResourceBytes(bogusBytes);
       expect(ok).toBe(false);
-      const statusText = document.getElementById("resource-import-status")?.textContent ?? "";
-      expect(statusText).toContain("Import rejected:");
+      expect(app.getPanelStatus().resource).toContain("Import rejected:");
 
       app.dispose();
     } finally {
@@ -70,3 +78,11 @@ describe("Phase 9 — UI Shell Accessibility, prefers-reduced-motion & Asset Val
     }
   });
 });
+
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(predicate()).toBe(true);
+}

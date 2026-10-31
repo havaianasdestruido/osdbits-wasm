@@ -9,6 +9,7 @@
  */
 
 import { expect, test } from "@playwright/test";
+import { clickUi } from "../e2e/support/uiHarness";
 
 test("Phase 11 production bundle: zero external network requests, zero console errors, working WASM + WebGPU + Audio + IndexedDB", async ({
   page,
@@ -60,8 +61,8 @@ test("Phase 11 production bundle: zero external network requests, zero console e
   await expect(page.locator("#app")).toHaveAttribute("data-abi-magic", "0x4f534442");
 
   // Single-click launch in production bundle
-  await page.click("#start-osdsys-btn");
-  await expect(page.locator("#launch-overlay")).toBeHidden();
+  await clickUi(page, "title-start");
+  await expect(page.locator("#app")).toHaveAttribute("data-scene-active", "true");
 
   const prodState = await page.evaluate(async () => {
     const h = window.__osdbitsHarness!;

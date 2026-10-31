@@ -1,141 +1,153 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import {
+  clickUi,
+  drawnTextIncludes,
+  expectOnlyApplicationVisible,
+  sceneMenuScreen,
+  uiRegionVisible,
+  waitForAppReady,
+} from "./support/uiHarness";
 
-test("Phases 6, 8 & 9 E2E: single-click Start OSDSYS + AudioContext unlock, Mode C/D/E interactive UI, two-step reset, and in-place recovery", async ({
+async function clockYear(page: Page): Promise<number | null> {
+  return page.evaluate(() => {
+    const fields = window.__osdbitsHarness?.app.getLatestSnapshot()?.menuUi?.clockFields;
+    return fields ? Number(fields[0]) : null;
+  });
+}
+
+test("UILess: the title is the only UI at rest, and one canvas click starts the scene with audio unlocked", async ({
   page,
 }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (err) => pageErrors.push(err.message));
 
   await page.goto("/");
-  await page.waitForFunction(
-    () => document.getElementById("app")?.dataset.appState === "ready",
-    null,
-    { timeout: 15_000 },
-  );
+  await waitForAppReady(page);
 
-  // 1. Pre-activation: launch overlay visible, zero audio nodes / resume calls
-  await expect(page.locator("#launch-overlay")).toBeVisible();
+  // 1. Pre-activation: only the application is visible; the title is drawn into the canvas.
+  await expectOnlyApplicationVisible(page);
+  await expect(page.locator("#app")).toHaveAttribute("data-ui-screen", "title");
+  await expect.poll(() => drawnTextIncludes(page, "START OSDSYS")).toBe(true);
   const preAudio = await page.evaluate(() => {
     const a = window.__osdbitsHarness!.audio;
-    return {
-      status: a.getStatus(),
-      ctxState: a.getContextState(),
-      resumes: a.getResumeCallCount(),
-    };
+    return { status: a.getStatus(), ctxState: a.getContextState(), resumes: a.getResumeCallCount() };
   });
-  expect(preAudio).toEqual({
-    status: "unactivated",
-    ctxState: "uninitialized",
-    resumes: 0,
-  });
+  expect(preAudio).toEqual({ status: "unactivated", ctxState: "uninitialized", resumes: 0 });
 
-  // 2. Single-click activation on "Start OSDSYS" -> synchronous AudioContext.resume() + immediate scene entry!
-  await page.click("#start-osdsys-btn");
-  await expect(page.locator("#launch-overlay")).toBeHidden();
-  await expect(page.locator("#hud-toolbar")).toBeVisible();
-
+  // 2. Single pointer activation: synchronous AudioContext.resume() + immediate scene entry.
+  await clickUi(page, "title-start");
+  await expect(page.locator("#app")).toHaveAttribute("data-scene-active", "true");
+  await expect(page.locator("#app")).toHaveAttribute("data-renderer-backend", "webgpu");
   await expect
-    .poll(async () => {
-      return page.evaluate(() => {
+    .poll(async () =>
+      page.evaluate(() => {
         const h = window.__osdbitsHarness!;
         return {
-          sceneActive: document.getElementById("app")?.dataset.sceneActive,
           resumes: h.audio.getResumeCallCount(),
           ctxState: h.audio.getContextState(),
           status: h.audio.getStatus(),
         };
-      });
-    })
-    .toEqual({
-      sceneActive: "true",
-      resumes: 1,
-      ctxState: "running",
-      status: "running",
-    });
+      }),
+    )
+    .toEqual({ resumes: 1, ctxState: "running", status: "running" });
 
-  // 3. Mode C: switch to Illegal Disc, advance to text fade-in, verify localized text + unverified boot-param provenance
-  await page.click('.mode-switch-btn[data-mode="illegal-disc"]');
-  await page.evaluate(() => {
-    const h = window.__osdbitsHarness!;
-    for (let i = 0; i < 65; i++) {
-      h.bridge.stepFrame();
-    }
-    // Trigger one UI sync step
-    (h.app as unknown as { lastSnapshot: unknown; renderModeOverlays: () => void }).lastSnapshot =
-      h.bridge.stepFrame();
-    (h.app as unknown as { renderModeOverlays: () => void }).renderModeOverlays();
-  });
-  await expect(page.locator("#illegal-hud")).toBeVisible();
-  await expect(page.locator("#illegal-msg-text")).toHaveText(
+  // 3. Mode C: key 3 switches to the Red Disc; the localized warning is drawn in-app.
+  await page.keyboard.press("3");
+  await expect(page.locator("#app")).toHaveAttribute(
+    "data-illegal-text",
     "Please insert a supported format disc.",
+    { timeout: 20_000 },
   );
-  await expect(page.locator(".illegal-prov-note")).toContainText("unverified");
+  await expect.poll(() => drawnTextIncludes(page, "unverified")).toBe(true);
 
-  // 4. Mode D: interactive keyboard & pointer menu navigation + provenance pills + 6-field clock editor
-  await page.click('.mode-switch-btn[data-mode="menu"]');
-  await expect(page.locator("#menu-hud")).toBeVisible();
-  await expect(page.locator("#menu-items-panel")).toContainText("Browser");
-  await expect(page.locator("#menu-items-panel")).toContainText("System Configuration");
-  await expect(page.locator("#menu-items-panel")).toContainText("approximate");
-  await expect(page.locator("#menu-items-panel")).toContainText("sourced");
+  // 4. Mode D: keyboard 4 opens the menu; provenance tags are drawn in-app.
+  await page.keyboard.press("4");
+  await expect(page.locator("#app")).toHaveAttribute("data-ui-screen", "menu");
+  await expect(page.locator("#app")).toHaveAttribute("data-menu-interactive", "true", {
+    timeout: 20_000,
+  });
+  await expect.poll(() => drawnTextIncludes(page, "Browser")).toBe(true);
+  await expect.poll(() => drawnTextIncludes(page, "System Configuration")).toBe(true);
+  await expect.poll(() => drawnTextIncludes(page, "[APPROX]")).toBe(true);
+  await expect.poll(() => drawnTextIncludes(page, "[SOURCED]")).toBe(true);
 
-  // Navigate via keyboard Down -> Enter into System Configuration
+  // Keyboard into System Configuration, then pointer-click "Clock Adjustment" (index 0).
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
-  await expect(page.locator("#menu-screen-title")).toHaveText("System Configuration");
-
-  // Pointer-click "Clock Adjustment" (index 0) -> opens 6-field clock editor bar.
-  // The rows fade in during the 90-frame open choreography, but the core ignores
-  // input until it finishes (`menu.c:0x227D08`), so the shell keeps them disabled:
-  // `click()` therefore waits for the row to become clickable instead of dropping
-  // a click that lands inside the transition window.
-  const clockAdjustmentRow = page.locator('#menu-items-panel button[data-menu-index="0"]');
-  await expect(clockAdjustmentRow).toBeEnabled();
-  await clockAdjustmentRow.click();
-  await expect(page.locator("#clock-editor-bar")).toBeVisible();
-  const initialYear = await page.locator("#clock-editor-bar .clock-field-chip").first().textContent();
+  await expect.poll(() => sceneMenuScreen(page)).toBe("config-list");
+  await clickUi(page, "menu-item-0");
+  await expect.poll(() => sceneMenuScreen(page)).toBe("config-edit-clock");
+  const fieldCount = await page.evaluate(
+    () => window.__osdbitsHarness!.app.getLatestSnapshot()?.menuUi?.clockFields?.length ?? 0,
+  );
+  expect(fieldCount).toBe(6);
+  const initialYear = await clockYear(page);
   await page.keyboard.press("ArrowUp");
-  const nextYear = await page.locator("#clock-editor-bar .clock-field-chip").first().textContent();
-  expect(Number(nextYear)).toBe(Number(initialYear) + 1);
+  await expect.poll(() => clockYear(page)).toBe((initialYear ?? 0) + 1);
   await page.keyboard.press("Escape");
-  await expect(page.locator("#clock-editor-bar")).toBeHidden();
+  await expect.poll(() => sceneMenuScreen(page)).not.toBe("config-edit-clock");
 
-  // 5. Mode E: Customize drawer, verified persistence, and two-step Reset to Faithful Defaults
-  await page.click("#toggle-customize-btn");
-  await expect(page.locator("#customize-drawer")).toBeVisible();
-  await page.selectOption("#cfg-video-standard", "pal");
-  await page.selectOption("#cfg-language", "3"); // Spanish
-  await page.check("#cfg-reduced-motion");
+  // 5. Mode E: the options screen is drawn in-app and every setting is a canvas row.
+  await page.keyboard.press("c");
+  await expect(page.locator("#app")).toHaveAttribute("data-ui-screen", "options");
+  await clickUi(page, "opt-video");
+  await expect.poll(() => page.evaluate(() => window.__osdbitsHarness!.app.getSettings().pal)).toBe(true);
+  await clickUi(page, "opt-lang");
+  await clickUi(page, "opt-lang");
+  await expect
+    .poll(() => page.evaluate(() => window.__osdbitsHarness!.app.getSettings().language))
+    .toBe(3);
+  await clickUi(page, "opt-reduced");
+  await expect
+    .poll(() => page.evaluate(() => window.__osdbitsHarness!.app.getSettings().reducedMotion))
+    .toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => window.__osdbitsHarness!.app.getPanelStatus().persistence))
+    .toContain("Saved & read-back verified");
 
-  await expect(page.locator("#persistence-status")).toContainText("Saved & read-back verified");
+  // Two-step reset: first press reveals the confirm row without resetting.
+  await clickUi(page, "opt-reset");
+  await expect.poll(() => uiRegionVisible(page, "opt-reset-confirm")).toBe(true);
+  expect(await page.evaluate(() => window.__osdbitsHarness!.app.getSettings().pal)).toBe(true);
+  await clickUi(page, "opt-reset-confirm");
+  await expect
+    .poll(() => page.evaluate(() => window.__osdbitsHarness!.app.getPanelStatus().persistence))
+    .toContain("Restored faithful OSDSYS defaults");
+  const restored = await page.evaluate(() => {
+    const s = window.__osdbitsHarness!.app.getSettings();
+    return { pal: s.pal, language: s.language };
+  });
+  expect(restored).toEqual({ pal: false, language: 1 });
 
-  // First click on Reset reveals Confirm Reset without resetting immediately
-  await page.click("#reset-defaults-btn");
-  await expect(page.locator("#confirm-reset-btn")).toBeVisible();
-  expect(await page.inputValue("#cfg-video-standard")).toBe("pal");
+  // Diagnostics: a sub-screen of options with live telemetry and provenance, then back.
+  await clickUi(page, "opt-diagnostics");
+  await expect(page.locator("#app")).toHaveAttribute("data-ui-screen", "diagnostics");
+  await expect.poll(() => drawnTextIncludes(page, "LIVE TELEMETRY")).toBe(true);
+  await expect.poll(() => drawnTextIncludes(page, "PROVENANCE")).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#app")).toHaveAttribute("data-ui-screen", "options");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#app")).toHaveAttribute("data-ui-screen", "menu");
 
-  // Second click confirms reset back to faithful NTSC English defaults
-  await page.click("#confirm-reset-btn");
-  await expect(page.locator("#persistence-status")).toContainText("Restored faithful OSDSYS defaults");
-  expect(await page.inputValue("#cfg-video-standard")).toBe("ntsc");
-  expect(await page.inputValue("#cfg-language")).toBe("1");
-
-  // 6. Inspector toggle & Non-destructive scene error recovery without reload
-  await page.click("#toggle-inspector-btn");
-  await expect(page.locator("#telemetry-panel")).toBeVisible();
-  await expect(page.locator("#telemetry-grid")).toContainText("Provenance");
-
+  // 6. Scene error: minimal in-app box with a recover row, then recovery without reload.
   await page.evaluate(() => {
     window.__osdbitsHarness!.app.triggerSimulatedFault("Injected E2E GPU/Sim fault");
   });
-  await expect(page.locator("#error-banner")).toBeVisible();
-  await page.click("#recover-scene-btn");
-  await expect(page.locator("#error-banner")).toBeHidden();
+  await expect(page.locator("#app")).toHaveAttribute("data-runtime-error", "true");
+  await expect.poll(() => drawnTextIncludes(page, "SCENE ERROR")).toBe(true);
+  await clickUi(page, "error-recover");
+  await expect(page.locator("#app")).not.toHaveAttribute("data-runtime-error", "true");
+
+  // 7. At rest again: only the application; the corner pop-up hides after idling.
+  await expectOnlyApplicationVisible(page);
+  await expect(page.locator("#app")).not.toHaveAttribute("data-popup-visible", "true", {
+    timeout: 8_000,
+  });
 
   expect(pageErrors).toEqual([]);
 });
 
-test("Phase 9 capability fallback: gracefully presents diagnostic UI when navigator.gpu is absent", async ({
+test("Phase 9 capability fallback: without navigator.gpu the title says so and offers the reduced Canvas 2D path", async ({
   context,
 }) => {
   const page = await context.newPage();
@@ -150,20 +162,15 @@ test("Phase 9 capability fallback: gracefully presents diagnostic UI when naviga
   });
 
   await page.goto("/");
-  await page.waitForFunction(
-    () => document.getElementById("app")?.dataset.appState === "ready",
-    null,
-    { timeout: 15_000 },
-  );
+  await waitForAppReady(page);
+  await expectOnlyApplicationVisible(page);
+  await expect(page.locator("#app")).toHaveAttribute("data-webgpu-fallback", "true");
 
-  await expect(page.locator("#webgpu-fallback-panel")).toBeVisible();
-  await expect(page.locator("#webgpu-fallback-panel")).toContainText("WebGPU Adapter Unavailable");
-  await expect(page.locator("#start-osdsys-btn")).toBeDisabled();
-  await expect(page.locator("#proceed-canvas-fallback-btn")).toBeEnabled();
+  await expect.poll(() => drawnTextIncludes(page, "WEBGPU ADAPTER UNAVAILABLE")).toBe(true);
+  await expect.poll(() => drawnTextIncludes(page, "RENDERER: WEBGPU UNAVAILABLE")).toBe(true);
+  expect(await uiRegionVisible(page, "title-start")).toBe(false);
 
-  await page.click("#proceed-canvas-fallback-btn");
-  await expect(page.locator("#launch-overlay")).toBeHidden();
-  await expect(page.locator("#hud-toolbar")).toBeVisible();
+  await clickUi(page, "title-canvas2d");
   await expect(page.locator("#app")).toHaveAttribute("data-renderer-backend", "canvas2d");
   await expect(page.locator("#app")).toHaveAttribute("data-scene-active", "true");
   await expect
