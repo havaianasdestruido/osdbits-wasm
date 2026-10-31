@@ -1,0 +1,66 @@
+name: osdbits-wasm CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - "arena/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Legal, Rust/WASM, TypeScript, WGSL & WebGPU E2E Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository (full history for provenance verification)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies (includes pinned Rust 1.88 + SwiftShader Chromium)
+        run: npm ci
+
+      - name: Verify zero proprietary BIOS artifacts & historical PS2 provenance
+        run: npm run check:legal
+
+      - name: Check Rust formatting & Clippy lints (host + wasm32)
+        run: npm run lint:rust
+
+      - name: Run Rust unit, ABI & 12,500+ property/fuzz tests
+        run: npm run test:rust
+
+      - name: Compile wasm32-unknown-unknown release binary
+        run: npm run build:wasm
+
+      - name: Run strict TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Run Vitest unit, naga-wasm WGSL shader & storage migration tests
+        run: npm run test:unit
+
+      - name: Build production static bundle (dist/)
+        run: npm run build
+
+      - name: Run Playwright WebGPU, cold-restart persistence & UI/Audio E2E tests
+        run: npm run test:e2e
+
+      - name: Run deterministic WebGPU visual regression golden suite
+        run: npm run test:visual
+
+      - name: Run endurance, percentile latency & zero-leak benchmarks
+        run: npm run test:perf
+
+      - name: Verify production static bundle over HTTP preview server
+        run: npm run test:prod
