@@ -1,7 +1,7 @@
 /**
  * Phase 11 (`P11-002`) — Production Static Bundle (`dist/`) & Preview Server Verification.
  *
- * Runs against the production `vite build` output served by `vite preview` (`http://127.0.0.1:4173`):
+ * Runs against the production `vite build` output served by a static server under `/osdbits-wasm/` (like a GitHub Pages project site):
  * - Verifies ZERO external runtime network requests (100% self-contained static bundle).
  * - Verifies ZERO console errors and ZERO uncaught page errors.
  * - Verifies WASM binary fetch/instantiation, single-click `Start OSDSYS` + `AudioContext` unlock,
@@ -45,12 +45,15 @@ test("Phase 11 production bundle: zero external network requests, zero console e
     pageErrors.push(err.message);
   });
 
-  await page.goto("/");
+  await page.goto("/osdbits-wasm/");
   await page.waitForFunction(
     () => document.getElementById("app")?.dataset.appState === "ready",
     null,
     { timeout: 15_000 },
   );
+
+  // Missing files must not be rewritten to index.html by an SPA fallback.
+  expect((await page.request.get("/osdbits-wasm/missing.js")).status()).toBe(404);
 
   // Verify WASM MIME header & ABI handshake
   expect(wasmContentType).toContain("application/wasm");

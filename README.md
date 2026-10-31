@@ -1,3 +1,7 @@
+## GitHub Pages deployment
+
+The CI workflow builds, tests, and deploys the static `dist/` bundle on default-branch pushes. Set **Settings → Pages → Source** to **GitHub Actions** first. See the [deployment guide](docs/testing-and-deployment.md#github-pages-github-actions) for details.
+
 # osdbits-wasm — PlayStation 2 OSDSYS Browser Reconstruction (`Rust/WASM + WebGPU`)
 
 `osdbits-wasm` is a browser-native, deterministic, persistent, clean-room reconstruction of the PlayStation 2 **OSDSYS** boot & menu visual experience, forked from [`aap/osdbits`](osdbits) while preserving 100% of the upstream Emotion Engine / VU1 / GS reverse-engineering sources and notes untouched.
