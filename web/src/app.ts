@@ -132,6 +132,10 @@ export class App {
   private readonly menuItems = $<HTMLUListElement>("menu-items");
 
   async boot(): Promise<void> {
+    // Machine-readable state for the E2E specs (and for anyone debugging in
+    // devtools): body[data-boot] / [data-phase] / [data-renderer] / [data-audio].
+    document.body.dataset.boot = "loading";
+    document.body.dataset.phase = "idle";
     // Settings and the wasm module load in parallel with the first paint; the
     // click only has to start audio + GPU.
     const storePromise = openStore();
@@ -173,6 +177,7 @@ export class App {
       this.showBanner(`The simulation core failed to load: ${(error as Error).message}`, true);
       this.capabilitiesLine.textContent = "the simulation core is unavailable";
       this.startButton.disabled = true;
+      document.body.dataset.boot = "failed";
       return;
     }
 
@@ -181,6 +186,7 @@ export class App {
     });
     this.setCapabilities();
     this.wireControls();
+    document.body.dataset.boot = "ready";
   }
 
   /** The single activation gesture. */
@@ -189,6 +195,7 @@ export class App {
     this.started = true;
     this.startButton.disabled = true;
     this.startButton.textContent = "Starting…";
+    document.body.dataset.phase = "starting";
 
     // 1. Audio: created *inside* the gesture, before any await.
     if (this.settings.audio) {
@@ -215,10 +222,14 @@ export class App {
       this.canvas.focus?.();
       if (this.settings.debugOverlay) this.setPanel(this.diagnostics, true);
       if (this.settings.scene === "menu") this.openMenu();
+      document.body.dataset.phase = "running";
+      document.body.dataset.renderer = engine.rendererKind;
+      document.body.dataset.audio = this.audio.state;
     } catch (error) {
       this.started = false;
       this.startButton.disabled = false;
       this.startButton.textContent = "Start OSDSYS";
+      document.body.dataset.phase = "error";
       this.showBanner(`Could not start the scene: ${(error as Error).message}`, true);
     }
   }
@@ -320,12 +331,18 @@ export class App {
 
   private updateStatus(status: EngineStatus): void {
     const renderer = status.renderer === "webgpu" ? "WebGPU" : "Canvas 2D (compat)";
+    document.body.dataset.renderer = status.renderer;
+    document.body.dataset.audio = this.audio.state;
+    document.body.dataset.frame = String(status.coreFrame);
+    const frame = this.lastFrame;
+    document.body.dataset.scene = frame ? String(frame.scene) : "";
+    document.body.dataset.cameraHeight = frame ? frame.cameraPos[2].toFixed(2) : "";
+    document.body.dataset.batches = frame ? String(frame.stats.batches) : "";
     this.statusLine.textContent =
       `${renderer} · ${status.fps.toFixed(0)} fps · ${status.frameMs.toFixed(1)} ms/frame · ` +
       `frame ${status.coreFrame}${status.ended ? " · ended" : ""}`;
 
     if (!this.diagnostics.hidden || this.settings.debugOverlay) {
-      const frame = this.lastFrame;
       this.diagnosticsList.textContent = "";
       const rows: [string, string][] = [
         ["renderer", status.renderer === "webgpu" ? "WebGPU" : "Canvas 2D compatibility"],
