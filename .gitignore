@@ -22,6 +22,8 @@ core*
 *.ai-reference
 *.png
 !docs/opening.png
+!docs/*.png
+!tests/**/*.png
 osdsys_re/
 osdbits/gsdump/
 osdbits/gsdump-archive/
@@ -32,3 +34,17 @@ vucode_[0-9]
 
 # matching workspace build output
 matching/build/
+
+# osdbits-wasm build, dependency, and test output
+node_modules/
+target/
+dist/
+coverage/
+test-results/
+playwright-report/
+blob-report/
+__pycache__/
+*.pyc
+public/wasm/*.wasm
+.tsbuildinfo
+

@@ -1,0 +1,41 @@
+{
+  "name": "osdbits-wasm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-native Rust/WASM + WebGPU clean-room reconstruction of the PlayStation 2 OSDSYS visual experience",
+  "license": "MIT",
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "dev": "npm run build:wasm && vite --host 0.0.0.0 --port 5173",
+    "build": "npm run build:wasm && tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests scripts playwright.config.ts vite.config.ts vitest.config.ts",
+    "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
+    "check:hygiene": "node scripts/check-repo-hygiene.mjs",
+    "test:unit": "vitest run --config vitest.config.ts tests/unit",
+    "test:wasm": "npm run build:wasm && vitest run --config vitest.config.ts tests/wasm",
+    "test:perf": "npm run build:wasm && vitest run --config vitest.config.ts tests/perf",
+    "test:e2e": "playwright test",
+    "test:e2e:hardware-gpu": "REQUIRE_HARDWARE_GPU=1 playwright test tests/e2e/webgpu-hardware.spec.ts",
+    "verify:all": "npm run check:hygiene && npm run check:rust && npm run build && npm run lint && npm run test:unit && npm run test:wasm && npm run test:perf && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.13.10",
+    "@types/pixelmatch": "^5.2.6",
+    "@types/pngjs": "^6.0.5",
+    "@webgpu/types": "^0.1.60",
+    "eslint": "^9.22.0",
+    "fake-indexeddb": "^6.0.0",
+    "globals": "^16.0.0",
+    "pixelmatch": "^6.0.0",
+    "pngjs": "^7.0.0",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.1",
+    "vite": "^6.2.2",
+    "vitest": "^3.0.9"
+  }
+}
