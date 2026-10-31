@@ -21,80 +21,19 @@ import sys
 from pathlib import Path
 
 
-def parse_romdir(data, base):
-    """Parse a ROMDIR table at file offset base. Returns {name: (offset, size)},
-    with data offsets computed the way the ROM lays files out: packed in
-    entry order from the start of the ROMDIR's address space, 16-byte
-    aligned."""
-    entries = {}
-    offset = 0
-    pos = base
-    while True:
-        name = data[pos:pos+10].rstrip(b"\0")
-        if not name:
-            break
-        extsize, size = struct.unpack("<HI", data[pos+10:pos+16])
-        entries[name.decode("ascii", "replace")] = (offset, size)
-        offset += (size + 0xF) & ~0xF
-        pos += 16
-    return entries
-
-
-def find_romdir(data):
-    """Find the ROMDIR table: a 16-byte-aligned 'RESET' entry followed by
-    a 'ROMDIR' entry."""
-    pos = 0
-    while True:
-        pos = data.find(b"RESET\0\0\0\0\0", pos)
-        if pos < 0:
-            raise SystemExit("error: no ROMDIR found (not a BIOS/TEXIMAGE image?)")
-        if data[pos+16:pos+22] == b"ROMDIR":
-            return pos
-        pos += 1
-
-
-def expand(src):
-    """The OSDSYS resource decompressor (port of ps2expand.c): u32 size,
-    then LZ blocks of 30 literal/backref flags packed into a u32 whose
-    low 2 bits pick the offset/length split."""
-    size, = struct.unpack("<I", src[0:4])
-    p = 4
-    dst = bytearray()
-    ndesc = 0
-    desc = 0
-    while len(dst) < size:
-        if ndesc == 0:
-            desc = struct.unpack(">I", src[p:p+4])[0]
-            p += 4
-            n = desc & 3
-            shift = 14 - n
-            mask = 0x3FFF >> n
-            ndesc = 30
-        b = src[p]
-        p += 1
-        if desc & 0x80000000:
-            h = b << 8 | src[p]
-            p += 1
-            back = 1 + (h & mask)
-            m = 3 + (h >> shift)
-            for _ in range(m):
-                dst.append(dst[-back])
-        else:
-            dst.append(b)
-        desc = (desc << 1) & 0xFFFFFFFF
-        ndesc -= 1
-    return bytes(dst)
-
-
-def write_inc(path, symbol, data):
-    with open(path, "w") as f:
-        f.write("unsigned char %s[] = {\n" % symbol)
-        for i in range(0, len(data), 12):
-            row = data[i:i+12]
-            f.write("  " + ", ".join("0x%02x" % b for b in row))
-            f.write(",\n" if i + 12 < len(data) else "\n")
-        f.write("};\n")
-        f.write("unsigned int %s_len = %d;\n" % (symbol, len(data)))
+# One bounded implementation for common resource helpers. Keep the historical
+# --tables functions below: they are source-specific local analysis tools,
+# not the future browser import API.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+from osd_resources import (  # noqa: E402
+    MAX_INPUT,
+    ResourceError,
+    expand,
+    find_romdir,
+    main as resource_main,
+    parse_romdir,
+    write_inc as write_inc,
+)
 
 
 # ---------------------------------------------------------------------
@@ -136,7 +75,7 @@ def expand_osdsys(bios):
     if "OSDSYS" not in entries:
         raise SystemExit("error: no OSDSYS in this image")
     off, size = entries["OSDSYS"]
-    osdsys = bios[off:off+size]
+    osdsys = bios[off : off + size]
     # the compressed body follows the ELF header + loader stub; find it by
     # trying every 16-byte-aligned offset until expand() produces a blob
     # that starts where the module's .data does
@@ -153,18 +92,18 @@ def expand_osdsys(bios):
 def write_font_tables(path, img):
     def rd(va, n):
         o = va - OSDSYS_LOAD
-        return img[o:o+n]
+        return img[o : o + n]
 
-    met = struct.unpack("<%dI" % (FONT_METRICS_N*2), rd(FONT_METRICS_VA, FONT_METRICS_N*8))
-    omet = struct.unpack("<%dI" % (OSD_METRICS_N*2), rd(OSD_METRICS_VA, OSD_METRICS_N*8))
+    met = struct.unpack("<%dI" % (FONT_METRICS_N * 2), rd(FONT_METRICS_VA, FONT_METRICS_N * 8))
+    omet = struct.unpack("<%dI" % (OSD_METRICS_N * 2), rd(OSD_METRICS_VA, OSD_METRICS_N * 8))
     clut = struct.unpack("<16I", rd(FONT_CLUT_VA, 64))
-    ptrs = struct.unpack("<%dI" % STRINGS_N, rd(STRINGS_VA, STRINGS_N*4))
+    ptrs = struct.unpack("<%dI" % STRINGS_N, rd(STRINGS_VA, STRINGS_N * 4))
 
     def cstr(p):
         if not (OSDSYS_LOAD <= p < OSDSYS_LOAD + len(img)):
             return None
-        s = img[p-OSDSYS_LOAD:]
-        return s[:s.index(b"\0")]
+        s = img[p - OSDSYS_LOAD :]
+        return s[: s.index(b"\0")]
 
     def cquote(b):
         out = ""
@@ -183,21 +122,25 @@ def write_font_tables(path, img):
         f.write("const int fontAsciiMetrics[%d][2] = {\n" % FONT_METRICS_N)
         for i in range(FONT_METRICS_N):
             c = 32 + i
-            f.write("\t{ %3d, %3d },\t/* %s */\n" %
-                (met[i*2], met[i*2+1], repr(chr(c)) if 32 <= c < 127 else "0x%02x" % c))
+            f.write(
+                "\t{ %3d, %3d },\t/* %s */\n"
+                % (met[i * 2], met[i * 2 + 1], repr(chr(c)) if 32 <= c < 127 else "0x%02x" % c)
+            )
         f.write("};\n\n")
-        f.write("/* real 0x271460: the kind-2 (FNTEXOSD) glyph metrics.  The page is\n"
-                " * 512x80 = 16 columns x 2 rows of the same 32x40 cell, so glyph g is\n"
-                " * at (g%%16)*32, (g/16)*40.  Entry 17 overlaps entry 16's \"(PS2)\",\n"
-                " * which is 60 px wide and spans two cells; 22..34 are all {0,13}. */\n")
+        f.write(
+            "/* real 0x271460: the kind-2 (FNTEXOSD) glyph metrics.  The page is\n"
+            " * 512x80 = 16 columns x 2 rows of the same 32x40 cell, so glyph g is\n"
+            ' * at (g%%16)*32, (g/16)*40.  Entry 17 overlaps entry 16\'s "(PS2)",\n'
+            " * which is 60 px wide and spans two cells; 22..34 are all {0,13}. */\n"
+        )
         f.write("const int fontOsdMetrics[%d][2] = {\n" % OSD_METRICS_N)
         for i in range(OSD_METRICS_N):
-            f.write("\t{ %3d, %3d },\t/* %2d */\n" % (omet[i*2], omet[i*2+1], i))
+            f.write("\t{ %3d, %3d },\t/* %2d */\n" % (omet[i * 2], omet[i * 2 + 1], i))
         f.write("};\n\n")
         f.write("/* real 0x2715e0: the 16-entry font CLUT (RGBA, 0x80 = opaque) */\n")
         f.write("unsigned int fontClut[16] = {\n")
         for i in range(0, 16, 4):
-            f.write("\t" + " ".join("0x%08x," % clut[j] for j in range(i, i+4)) + "\n")
+            f.write("\t" + " ".join("0x%08x," % clut[j] for j in range(i, i + 4)) + "\n")
         f.write("};\n\n")
         f.write("/* real 0x298b08: the English osdGetString table */\n")
         f.write("const char *osdStringTable[%d] = {\n" % STRINGS_N)
@@ -206,7 +149,7 @@ def write_font_tables(path, img):
             if s is None:
                 f.write("\t0,\n")
             else:
-                f.write("\t\"%s\",\n" % cquote(s))
+                f.write('\t"%s",\n' % cquote(s))
         f.write("};\n")
         f.write("const int osdStringTableLen = %d;\n" % STRINGS_N)
     print("font tables (%d glyphs, %d strings) -> %s" % (FONT_METRICS_N, STRINGS_N, path))
@@ -237,10 +180,10 @@ CUBE_TABLE_N = 5
 def write_menu_geometry(path, img):
     def rd(va, n):
         o = va - OSDSYS_LOAD
-        return img[o:o+n]
+        return img[o : o + n]
 
     def vecs(va, n):
-        return [struct.unpack("<4f", rd(va + i*16, 16)) for i in range(n)]
+        return [struct.unpack("<4f", rd(va + i * 16, 16)) for i in range(n)]
 
     def flit(x):
         t = "%.9g" % x
@@ -259,76 +202,65 @@ def write_menu_geometry(path, img):
         f.write("/* generated by tools/extract-res.py --tables - do not commit */\n\n")
         for tag, scene in (("Rod", SCENE_ROD), ("Cube", SCENE_CUBE)):
             nf, vp, np_, up = struct.unpack("<4I", rd(scene + 4, 16))
-            farr(f, "menu%sVerts" % tag, vecs(vp, nf*4),
-                 "real 0x%06x: %d faces x 4 vertices" % (vp, nf))
-            farr(f, "menu%sNorms" % tag, vecs(np_, nf),
-                 "real 0x%06x: one face normal per face (w = 0)" % np_)
-            farr(f, "menu%sUVs" % tag, vecs(up, nf*4),
-                 "real 0x%06x: one (u, v) per vertex" % up)
+            farr(
+                f,
+                "menu%sVerts" % tag,
+                vecs(vp, nf * 4),
+                "real 0x%06x: %d faces x 4 vertices" % (vp, nf),
+            )
+            farr(
+                f,
+                "menu%sNorms" % tag,
+                vecs(np_, nf),
+                "real 0x%06x: one face normal per face (w = 0)" % np_,
+            )
+            farr(f, "menu%sUVs" % tag, vecs(up, nf * 4), "real 0x%06x: one (u, v) per vertex" % up)
             f.write("const int menu%sFaces = %d;\n\n" % (tag, nf))
         pos, col, bias = [], [], []
         for i in range(CUBE_TABLE_N):
-            e = CUBE_TABLE_VA + i*48
+            e = CUBE_TABLE_VA + i * 48
             pos.append(struct.unpack("<4f", rd(e, 16)))
             col.append(struct.unpack("<4I", rd(e + 16, 16)))
             bias.append(struct.unpack("<f", rd(e + 32, 4))[0])
-        farr(f, "menuCubePos", pos,
-             "real 0x%06x + 0x00: the five cubes' positions" % CUBE_TABLE_VA)
+        farr(f, "menuCubePos", pos, "real 0x%06x + 0x00: the five cubes' positions" % CUBE_TABLE_VA)
         f.write("/* real 0x%06x + 0x10: per-cube colour */\n" % CUBE_TABLE_VA)
         f.write("const int menuCubeColor[%d][4] = {\n" % CUBE_TABLE_N)
         for c in col:
             f.write("\t{ %s },\n" % ", ".join("0x%02x" % x for x in c))
         f.write("};\n\n")
         f.write("/* real 0x%06x + 0x20: per-cube size bias */\n" % CUBE_TABLE_VA)
-        f.write("const float menuCubeBias[%d] = { %s };\n" %
-                (CUBE_TABLE_N, ", ".join(flit(x) for x in bias)))
+        f.write(
+            "const float menuCubeBias[%d] = { %s };\n"
+            % (CUBE_TABLE_N, ", ".join(flit(x) for x in bias))
+        )
     print("menu geometry (rod + cube + %d placements) -> %s" % (CUBE_TABLE_N, path))
 
 
 def main():
-    ap = argparse.ArgumentParser(description="extract OSDSYS texture resources from a PS2 BIOS dump")
-    ap.add_argument("image", help="BIOS image (or a bare TEXIMAGE file)")
-    ap.add_argument("outdir", help="output directory (osdbits/res)")
-    ap.add_argument("--container", default="TEXIMAGE", help="resource container to extract (default TEXIMAGE)")
-    ap.add_argument("--raw", action="store_true", help="also write the raw expanded files")
-    ap.add_argument("--tables", action="store_true",
-                    help="instead of resources, write FONTDATA.inc (the text engine's\nglyph metrics, font CLUT and string table) and MENUGEOM.inc (Module U's\nrod and cube meshes), both read out of OSDSYS itself")
+    # Keep this entry point's additional table-extraction capability intact.
+    ap = argparse.ArgumentParser(description="extract authorized local OSDSYS tables")
+    ap.add_argument("image")
+    ap.add_argument("outdir")
+    ap.add_argument("--container", default="TEXIMAGE")
+    ap.add_argument("--raw", action="store_true")
+    ap.add_argument("--tables", action="store_true")
     args = ap.parse_args()
-
-    data = Path(args.image).read_bytes()
-    outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    if args.tables:
+    if not args.tables:
+        return resource_main()
+    try:
+        with Path(args.image).open("rb") as f:
+            data = f.read(MAX_INPUT + 1)
+        if len(data) > MAX_INPUT:
+            raise ResourceError("image exceeds input limit")
         img = expand_osdsys(data)
+        outdir = Path(args.outdir)
+        outdir.mkdir(parents=True, exist_ok=True)
         write_font_tables(outdir / "FONTDATA.inc", img)
         write_menu_geometry(outdir / "MENUGEOM.inc", img)
-        return
-
-    base = find_romdir(data)
-    entries = parse_romdir(data, base)
-
-    if args.container in entries:
-        # a full BIOS: descend into the container, which is a nested ROMDIR
-        off, size = entries[args.container]
-        data = data[off:off+size]
-        base = find_romdir(data)
-        entries = parse_romdir(data, base)
-    # else: input was already a bare container
-
-    n = 0
-    for name, (off, size) in entries.items():
-        if name in ("RESET", "ROMDIR", "EXTINFO") or name.startswith("-"):
-            continue
-        exp = expand(data[off:off+size])
-        symbol = name + "_EXP"
-        write_inc(outdir / (symbol + ".inc"), symbol, exp)
-        if args.raw:
-            (outdir / symbol).write_bytes(exp)
-        print("%-10s %6d -> %6d" % (name, size, len(exp)))
-        n += 1
-    print("%d resources extracted to %s" % (n, outdir))
+    except (ResourceError, OSError, struct.error, ValueError) as exc:
+        ap.exit(2, f"error: {exc}\n")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

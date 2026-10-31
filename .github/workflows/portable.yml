@@ -1,0 +1,28 @@
+name: Portable CPU validation (not WebGPU verification)
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  resources-and-ledger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install controlled QA dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Test portable resource tools and engineering ledger
+        run: bash tools/check-portable.sh
+
+# Deliberately no GPU-success badge or fabricated browser job. Real-GPU,
+# WASM, storage-restart and deployment gates remain open in TODO.MD until
+# implemented and run on a declared environment. No proprietary artifacts
+# are consumed or uploaded by this workflow.

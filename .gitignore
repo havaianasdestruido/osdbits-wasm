@@ -32,3 +32,19 @@ vucode_[0-9]
 
 # matching workspace build output
 matching/build/
+
+# Portable QA and future browser build artifacts
+__pycache__/
+*.pyc
+.cache/
+.venv/
+.ruff_cache/
+node_modules/
+target/
+dist/
+
+# Never add local firmware or captured console memory
+*.bin
+*.rom
+*.gs
+*.gs.zst

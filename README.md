@@ -1,4 +1,21 @@
-# OSDSYS reverse engineering
+# osdbits-wasm
+
+Browser-native preservation port in progress. **There is not yet a runnable
+browser application or a release-ready WASM/WebGPU build.** The original PS2
+implementation and analysis are preserved below; its runtime claims have not
+been independently reproduced in this sandbox.
+
+- [Implementation ledger](TODO.MD) — acceptance criteria, tests and blockers.
+- [Baseline audit](docs/BASELINE.md) and [source inventory](docs/SOURCE-INVENTORY.md).
+- [Architecture](docs/ARCHITECTURE.md) and [executed test evidence](docs/TEST-EVIDENCE.md).
+- [Portable development and resource tooling](docs/DEVELOPMENT.md).
+
+The first implemented port foundation is bounded local resource parsing with
+synthetic regression tests. It does not require or provide a BIOS. No
+proprietary resource data was added. Licensing and inherited-asset provenance
+must be clarified before public redistribution.
+
+## Original project — OSDSYS reverse engineering
 
 Reverse engineering of the PS2 OSDSYS — the boot ROM's on-screen display
 (boot animation, browser, system configuration) — from a retail OSDSYS
@@ -67,4 +84,8 @@ The ELF also runs under PCSX2.  Optional arguments
 - Illegal-disc screen: ported (red cloud particles, the flare discs and
   lens sprites, the red glass cubes, localized text, screen fades) —
   not yet verified against the real ROM.
-- Menu/browser: notes only, see `docs/menu-rendering-reverse.md`.
+- Menu/configuration: the checkout includes substantial reconstruction in
+  `menu.c`, `menuback.c`, `menuconfig.c` and `menutext.c`, in addition to
+  `docs/menu-rendering-reverse.md`. RTC/config persistence has stubbed
+  hardware side effects; this is not a complete real memory-card browser.
+  See the baseline audit for locally unverified behavior.
