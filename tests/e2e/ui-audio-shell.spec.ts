@@ -159,6 +159,31 @@ test("Phase 9 capability fallback: gracefully presents diagnostic UI when naviga
   await expect(page.locator("#webgpu-fallback-panel")).toBeVisible();
   await expect(page.locator("#webgpu-fallback-panel")).toContainText("WebGPU Adapter Unavailable");
   await expect(page.locator("#start-osdsys-btn")).toBeDisabled();
+  await expect(page.locator("#proceed-canvas-fallback-btn")).toBeEnabled();
+
+  await page.click("#proceed-canvas-fallback-btn");
+  await expect(page.locator("#launch-overlay")).toBeHidden();
+  await expect(page.locator("#hud-toolbar")).toBeVisible();
+  await expect(page.locator("#app")).toHaveAttribute("data-renderer-backend", "canvas2d");
+  await expect(page.locator("#app")).toHaveAttribute("data-scene-active", "true");
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const canvas = document.getElementById("osdbits-canvas") as HTMLCanvasElement;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return 0;
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let nonBlackSamples = 0;
+        for (let index = 0; index < pixels.length; index += 400) {
+          if ((pixels[index] ?? 0) + (pixels[index + 1] ?? 0) + (pixels[index + 2] ?? 0) > 30) {
+            nonBlackSamples++;
+          }
+        }
+        return nonBlackSamples;
+      }),
+    )
+    .toBeGreaterThan(0);
+
   expect(pageErrors).toEqual([]);
   await page.close();
 });

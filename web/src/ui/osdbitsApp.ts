@@ -10,9 +10,13 @@
  * - Live percentile (`p50`/`p95`) telemetry & provenance inspector + non-destructive scene recovery
  */
 
-import { synthesizeProceduralTextures } from "../assets/proceduralTextures";
+import {
+  synthesizeProceduralTextures,
+  type ProceduralTextureAsset,
+} from "../assets/proceduralTextures";
 import { importUserResourceArchive } from "../assets/userResourceImporter";
 import { AudioEngine } from "../audio/audioEngine";
+import { Canvas2DRenderer } from "../renderer/canvas2dRenderer";
 import { WebGpuRenderer, type AspectPresentationMode } from "../renderer/webgpuRenderer";
 import {
   DEFAULT_FAITHFUL_SETTINGS,
@@ -59,7 +63,7 @@ export class OsdbitsApp {
   readonly bridge: WasmSimulationBridge;
   readonly storage: StorageManager;
   readonly audio: AudioEngine;
-  renderer: WebGpuRenderer | null = null;
+  renderer: WebGpuRenderer | Canvas2DRenderer | null = null;
 
   private settings: OsdbitsSettings = sanitizeSettings(DEFAULT_FAITHFUL_SETTINGS);
   private running = false;
@@ -74,9 +78,10 @@ export class OsdbitsApp {
   private activeMenuSignature = "";
   private menuItemNodes: MenuItemNode[] = [];
   private webGpuErrorReason: string | null = null;
+  private textureAssets: ProceduralTextureAsset[] | null = null;
 
   private readonly rootEl: HTMLElement;
-  private readonly canvasEl: HTMLCanvasElement;
+  private canvasEl: HTMLCanvasElement;
 
   constructor(
     rootEl: HTMLElement,
@@ -125,6 +130,7 @@ export class OsdbitsApp {
         initialTextures = imp.textures;
       }
     }
+    this.textureAssets = initialTextures;
 
     try {
       this.renderer = await WebGpuRenderer.create({
@@ -205,6 +211,60 @@ export class OsdbitsApp {
     this.updateTelemetryDom();
   }
 
+  /** Starts the explicitly requested reduced Canvas 2D backend without another user gesture. */
+  proceedWithCanvasFallback(): void {
+    if (this.renderer) {
+      this.startFromUserGesture();
+      return;
+    }
+
+    try {
+      // A failed WebGPU initialization may already have claimed the canvas context type.
+      // In that case, swap in an equivalent fresh canvas before requesting Canvas 2D.
+      let hasCanvas2D = false;
+      try {
+        hasCanvas2D = this.canvasEl.getContext("2d") !== null;
+      } catch {
+        hasCanvas2D = false;
+      }
+      if (!hasCanvas2D) {
+        if (!this.canvasEl.parentNode) {
+          throw new Error("Cannot replace a detached canvas");
+        }
+        const replacement = this.canvasEl.cloneNode(false) as HTMLCanvasElement;
+        this.canvasEl.replaceWith(replacement);
+        this.canvasEl = replacement;
+      }
+
+      this.renderer = Canvas2DRenderer.create({
+        canvas: this.canvasEl,
+        aspectMode: this.settings.aspectMode,
+        resolutionScale: this.settings.resolutionScale,
+        initialTextures: this.textureAssets ?? undefined,
+      });
+      this.renderer.setDisplayConfig({
+        aspectMode: this.settings.aspectMode,
+        resolutionScale: this.settings.resolutionScale,
+        pal: this.settings.pal,
+      });
+      this.renderer.syncCanvasSize();
+      if (this.lastSnapshot) {
+        this.renderer.renderFrame(
+          this.bridge.getVertexView(),
+          this.bridge.getCommandView(),
+          this.lastSnapshot.mode,
+        );
+      }
+      this.updateCapabilityBadges();
+      this.startFromUserGesture();
+    } catch (err) {
+      const reasonEl = document.getElementById("webgpu-fallback-reason");
+      if (reasonEl) {
+        reasonEl.textContent = `Canvas 2D fallback could not start: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+  }
+
   async switchMode(mode: VisualModeName): Promise<void> {
     this.settings = { ...this.settings, mode };
     this.applySettingsToSimulation(true);
@@ -245,6 +305,7 @@ export class OsdbitsApp {
         this.bridge.getCommandView(),
         this.lastSnapshot.mode,
       );
+      this.updateCapabilityBadges();
       this.hideRuntimeError();
 
       if (this.rootEl.dataset.sceneActive === "true" && !this.running) {
@@ -271,6 +332,7 @@ export class OsdbitsApp {
         }
         return false;
       }
+      this.textureAssets = report.textures;
       this.renderer?.updateTextures(report.textures);
       await this.storage.saveImportedAsset(bytes, report.importedSlots);
       if (statusEl) {
@@ -587,7 +649,15 @@ export class OsdbitsApp {
             </button>
           </div>
 
-          <div id="webgpu-fallback-panel" class="fallback-panel hidden" role="alert"></div>
+          <div id="webgpu-fallback-panel" class="fallback-panel hidden" role="alert">
+            <div id="webgpu-fallback-reason"></div>
+            <button id="proceed-canvas-fallback-btn" type="button" class="primary-cta fallback-cta">
+              Proceed anyway (Canvas 2D)
+            </button>
+            <p class="fallback-note">
+              Reduced fidelity: geometry and animation run, but GPU refraction, glow, motion blur, and texture detail are simplified.
+            </p>
+          </div>
 
           <p class="legal-footnote">
             Clean-room reconstruction based on <code>aap/osdbits</code>. No Sony BIOS, ROM, or copyrighted audio/textures included.
@@ -775,6 +845,9 @@ export class OsdbitsApp {
     // CRITICAL: Single-click activation calls startFromUserGesture() synchronously!
     document.getElementById("start-osdsys-btn")?.addEventListener("click", () => {
       this.startFromUserGesture();
+    });
+    document.getElementById("proceed-canvas-fallback-btn")?.addEventListener("click", () => {
+      this.proceedWithCanvasFallback();
     });
 
     for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>(".mode-switch-btn"))) {
@@ -972,7 +1045,8 @@ export class OsdbitsApp {
       void (async () => {
         const res = await this.storage.resetToFaithfulDefaults(RESET_CONFIRMATION_TOKEN);
         this.settings = sanitizeSettings(DEFAULT_FAITHFUL_SETTINGS);
-        this.renderer?.updateTextures(synthesizeProceduralTextures());
+        this.textureAssets = synthesizeProceduralTextures();
+        this.renderer?.updateTextures(this.textureAssets);
         this.audio.setMixer({
           muted: this.settings.audioMuted,
           masterVolume: this.settings.masterVolume,
@@ -998,26 +1072,37 @@ export class OsdbitsApp {
     const startBtn = document.getElementById("start-osdsys-btn") as HTMLButtonElement | null;
     if (!badgesEl) return;
 
-    const hasGpu = this.renderer !== null;
+    const backend = this.renderer?.backend ?? null;
+    const hasWebGpu = backend === "webgpu";
     const storageBackend = this.storage.getBackendStatus();
+    const rendererLabel =
+      backend === "webgpu"
+        ? "WebGPU Ready"
+        : backend === "canvas2d"
+          ? "Canvas 2D Reduced"
+          : "WebGPU Unavailable";
+    this.rootEl.dataset.rendererBackend = backend ?? "unavailable";
 
     badgesEl.innerHTML = `
-      <span class="cap-badge ${hasGpu ? "" : "warn"}">${hasGpu ? "WebGPU Ready" : "WebGPU Unavailable"}</span>
+      <span class="cap-badge ${hasWebGpu ? "" : "warn"}">${rendererLabel}</span>
       <span class="cap-badge">WASM ABI v${this.bridge.abiVersion}</span>
       <span class="cap-badge">${storageBackend === "indexeddb" ? "IndexedDB Verified" : "Session Memory Fallback"}</span>
     `;
 
-    if (!hasGpu && fallbackEl) {
-      this.rootEl.dataset.webgpuFallback = "true";
-      fallbackEl.classList.remove("hidden");
-      fallbackEl.innerHTML = `
-        <strong>WebGPU Adapter Unavailable:</strong> ${this.webGpuErrorReason ?? "navigator.gpu missing"}.<br/>
-        <code>osdbits-wasm</code> requires a WebGPU-capable browser (Chromium 113+, Edge 113+, Firefox Nightly, or Safari 18+ with hardware/SwiftShader WebGPU enabled). The deterministic WASM simulation core and settings storage remain active for inspection.
-      `;
-      if (startBtn) {
-        startBtn.disabled = true;
-      }
+    if (hasWebGpu) {
+      delete this.rootEl.dataset.webgpuFallback;
+      fallbackEl?.classList.add("hidden");
+      if (startBtn) startBtn.disabled = false;
+      return;
     }
+
+    this.rootEl.dataset.webgpuFallback = "true";
+    fallbackEl?.classList.remove("hidden");
+    const reasonEl = document.getElementById("webgpu-fallback-reason");
+    if (reasonEl) {
+      reasonEl.textContent = `WebGPU Adapter Unavailable: ${this.webGpuErrorReason ?? "navigator.gpu missing"}. The full renderer needs WebGPU, or you can proceed with the reduced Canvas 2D backend below.`;
+    }
+    if (startBtn) startBtn.disabled = true;
   }
 
   private syncControlsFromSettings(): void {
@@ -1271,6 +1356,12 @@ export class OsdbitsApp {
 
     const s = this.lastSnapshot;
     const gpuStats = this.renderer?.getResourceStats();
+    const rendererBackend =
+      this.renderer?.backend === "webgpu"
+        ? "WebGPU"
+        : this.renderer?.backend === "canvas2d"
+          ? "Canvas 2D (reduced)"
+          : "Unavailable";
 
     grid.innerHTML = `
       <span class="telemetry-key">Mode</span><span>${s.mode} (frame #${s.frame})</span>
@@ -1279,7 +1370,8 @@ export class OsdbitsApp {
       <span class="telemetry-key">Geometry</span><span>${s.commands} cmds / ${s.vertices} verts / ${s.towers} towers</span>
       <span class="telemetry-key">Scene Objects</span><span>${s.cubes} cubes / ${s.orbs} orbs / ${s.rods} rods</span>
       <span class="telemetry-key">Camera</span><span>(${s.camPos[0].toFixed(1)}, ${s.camPos[1].toFixed(1)}, ${s.camPos[2].toFixed(1)})</span>
-      <span class="telemetry-key">GPU Targets</span><span>${gpuStats ? `${gpuStats.activeRenderTargetWidth}x${gpuStats.activeRenderTargetHeight} (recoveries: ${gpuStats.deviceLostRecoveries})` : "Fallback UI"}</span>
+      <span class="telemetry-key">Renderer</span><span>${rendererBackend}</span>
+      <span class="telemetry-key">Render Targets</span><span>${gpuStats ? `${gpuStats.activeRenderTargetWidth}x${gpuStats.activeRenderTargetHeight} (recoveries: ${gpuStats.deviceLostRecoveries})` : "Fallback UI"}</span>
       <span class="telemetry-key">Audio / DB</span><span>${this.audio.getStatus()} / ${this.storage.getBackendStatus()} (r${this.storage.getKnownRevision()})</span>
       <span class="telemetry-key">Provenance</span><span>${MODE_PROVENANCE_DESCRIPTION[s.mode]}</span>
     `;

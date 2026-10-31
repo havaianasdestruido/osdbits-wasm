@@ -182,6 +182,8 @@ function uint32BitsToFloat32(bits: number): number {
 }
 
 export class WebGpuRenderer {
+  readonly backend = "webgpu" as const;
+
   private readonly canvas: HTMLCanvasElement;
   private context: GPUCanvasContext;
   private presentationFormat: GPUTextureFormat;
@@ -258,13 +260,39 @@ export class WebGpuRenderer {
     return typeof navigator !== "undefined" && typeof navigator.gpu?.requestAdapter === "function";
   }
 
+  /**
+   * Some runtimes expose WebGPU but reject a high-performance adapter request. Retry the
+   * default adapter and then the explicit software fallback before reporting unavailability.
+   */
+  static async requestAdapterWithFallback(): Promise<GPUAdapter | null> {
+    if (!WebGpuRenderer.isWebGpuAvailable()) return null;
+    const attempts: GPURequestAdapterOptions[] = [
+      { powerPreference: "high-performance" },
+      {},
+      { forceFallbackAdapter: true },
+    ];
+    for (const options of attempts) {
+      try {
+        const adapter = await navigator.gpu.requestAdapter(options);
+        if (adapter) return adapter;
+      } catch {
+        // A rejected preference/fallback request does not rule out the next adapter class.
+      }
+    }
+    return null;
+  }
+
   static async create(options: RendererOptions): Promise<WebGpuRenderer> {
     if (!WebGpuRenderer.isWebGpuAvailable()) {
-      throw new Error("WebGPU is not available in this browser (navigator.gpu missing)");
+      throw new Error(
+        "WebGPU is not available in this browser (navigator.gpu missing; HTTPS or localhost is required)",
+      );
     }
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+    const adapter = await WebGpuRenderer.requestAdapterWithFallback();
     if (!adapter) {
-      throw new Error("No compatible WebGPU adapter could be acquired");
+      throw new Error(
+        "No compatible WebGPU adapter could be acquired (hardware, default, and software attempts failed)",
+      );
     }
     const device = await adapter.requestDevice();
     const context = options.canvas.getContext("webgpu");
@@ -1100,7 +1128,7 @@ export class WebGpuRenderer {
     if (this.disposed || this.isRecovering) return;
     this.isRecovering = true;
     try {
-      const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+      const adapter = await WebGpuRenderer.requestAdapterWithFallback();
       if (!adapter) {
         throw new Error("Could not reacquire WebGPU adapter after device loss");
       }

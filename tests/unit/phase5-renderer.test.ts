@@ -107,4 +107,34 @@ describe("Phase 5 — WebGPU Renderer Core & WGSL Shader Validation", () => {
       /WebGPU is not available/,
     );
   });
+
+  it("retries default and software adapters after a high-performance request fails", async () => {
+    const originalGpu = Object.getOwnPropertyDescriptor(navigator, "gpu");
+    const requests: GPURequestAdapterOptions[] = [];
+    const expectedAdapter = {} as GPUAdapter;
+    Object.defineProperty(navigator, "gpu", {
+      configurable: true,
+      value: {
+        requestAdapter: async (options?: GPURequestAdapterOptions) => {
+          requests.push(options ?? {});
+          return requests.length < 3 ? null : expectedAdapter;
+        },
+      },
+    });
+
+    try {
+      await expect(WebGpuRenderer.requestAdapterWithFallback()).resolves.toBe(expectedAdapter);
+      expect(requests).toEqual([
+        { powerPreference: "high-performance" },
+        {},
+        { forceFallbackAdapter: true },
+      ]);
+    } finally {
+      if (originalGpu) {
+        Object.defineProperty(navigator, "gpu", originalGpu);
+      } else {
+        Reflect.deleteProperty(navigator, "gpu");
+      }
+    }
+  });
 });
