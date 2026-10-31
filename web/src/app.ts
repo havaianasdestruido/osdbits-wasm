@@ -114,7 +114,7 @@ export class App {
   private menuOpen = false;
   private menuIndex = 0;
 
-  private readonly startOverlay = $("#start");
+  private readonly startOverlay = $("start");
   private readonly startButton = $<HTMLButtonElement>("startBtn");
   private readonly capabilitiesLine = $("capabilities");
   private readonly statusLine = $("status");
@@ -218,7 +218,7 @@ export class App {
       engine.applySettings(this.settings, false);
       engine.start();
       this.startOverlay.hidden = true;
-      $("#toolbar").focus?.();
+      $("toolbar").focus?.();
       this.canvas.focus?.();
       if (this.settings.debugOverlay) this.setPanel(this.diagnostics, true);
       if (this.settings.scene === "menu") this.openMenu();
