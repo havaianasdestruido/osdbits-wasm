@@ -17,6 +17,7 @@ import {
   synthesizeProceduralTextures,
   type ProceduralTextureAsset,
 } from "../assets/proceduralTextures";
+import type { UiOverlayFrame } from "../ui/pixelRaster";
 import {
   DrawCommandKindId,
   EXPECTED_CMD_WORDS,
@@ -215,6 +216,15 @@ export class WebGpuRenderer {
   private blitModulateAlphaPipeline!: GPURenderPipeline;
   private blitPresentPipeline!: GPURenderPipeline;
   private overlayAlphaPipeline!: GPURenderPipeline;
+  /** Presents the in-app UI raster over the swapchain (nearest-neighbour, alpha blended). */
+  private uiPresentPipeline!: GPURenderPipeline;
+  private uiUniformBuffer!: GPUBuffer;
+  private uiTexture: GPUTexture | null = null;
+  private uiTextureView: GPUTextureView | null = null;
+  private uiTextureWidth = 0;
+  private uiTextureHeight = 0;
+  private nearestClampSampler!: GPUSampler;
+  private readonly uiParamScratch = new Float32Array(16);
 
   private vertexBuffer!: GPUBuffer;
   private maxVertices = INITIAL_MAX_VERTICES;
@@ -377,10 +387,15 @@ export class WebGpuRenderer {
     await this.recoverFromDeviceLoss({ reason: "destroyed", message: "Simulated device loss" });
   }
 
+  /**
+   * Renders one scene frame into `sceneColor` and presents it. When `uiOverlay` is given, the
+   * in-app UI raster is composited over the presented frame in a final swapchain pass.
+   */
   renderFrame(
     vertexFloats: Float32Array,
     commandWords: Uint32Array,
     mode: VisualModeName,
+    uiOverlay?: UiOverlayFrame,
   ): void {
     if (this.disposed || this.isRecovering) return;
 
@@ -875,11 +890,49 @@ export class WebGpuRenderer {
 
     // Final presentation to canvas swapchain with aspect-ratio viewport framing
     const swapTex = this.context.getCurrentTexture();
-    const vp = computeAspectViewport(swapTex.width, swapTex.height, this.aspectMode);
+    const swapView = swapTex.createView();
+    this.encodePresentPass(encoder, swapView, swapTex.width, swapTex.height, presentUniformOffset);
+    if (uiOverlay) {
+      this.encodeUiPass(encoder, swapView, uiOverlay);
+    }
+
+    this.device.queue.submit([encoder.finish()]);
+  }
+
+  /**
+   * Re-presents the most recently rendered scene (`sceneColor`) together with a new UI raster,
+   * without running any simulation or scene passes. Used while the scene is paused (title screen)
+   * so temporal feedback buffers do not advance. Returns false when no scene exists yet.
+   */
+  presentUi(uiOverlay: UiOverlayFrame): boolean {
+    if (this.disposed || this.isRecovering || !this.targets) return false;
+    const sourceView = this.targets.sceneColorView;
+    const swapTex = this.context.getCurrentTexture();
+    const swapView = swapTex.createView();
+    const blitParams = new Float32Array(16);
+    blitParams.set([0, 0, 1, 1, 128, 128, 128, 128, 2, 0, 0, 0]);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, blitParams);
+
+    const encoder = this.device.createCommandEncoder();
+    this.encodePresentPass(encoder, swapView, swapTex.width, swapTex.height, 0, sourceView);
+    this.encodeUiPass(encoder, swapView, uiOverlay);
+    this.device.queue.submit([encoder.finish()]);
+    return true;
+  }
+
+  private encodePresentPass(
+    encoder: GPUCommandEncoder,
+    swapView: GPUTextureView,
+    swapWidth: number,
+    swapHeight: number,
+    uniformOffset: number,
+    sourceView: GPUTextureView = this.targets!.sceneColorView,
+  ): void {
+    const vp = computeAspectViewport(swapWidth, swapHeight, this.aspectMode);
     const presentPass = encoder.beginRenderPass({
       colorAttachments: [
         {
-          view: swapTex.createView(),
+          view: swapView,
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
           loadOp: "clear",
           storeOp: "store",
@@ -888,14 +941,58 @@ export class WebGpuRenderer {
     });
     presentPass.setViewport(vp.x, vp.y, vp.width, vp.height, 0, 1);
     presentPass.setPipeline(this.blitPresentPipeline);
-    presentPass.setBindGroup(
-      0,
-      this.makeBlitBindGroup(presentUniformOffset, targets.sceneColorView),
-    );
+    presentPass.setBindGroup(0, this.makeBlitBindGroup(uniformOffset, sourceView));
     presentPass.draw(3);
     presentPass.end();
+  }
 
-    this.device.queue.submit([encoder.finish()]);
+  /** Full-canvas alpha-blended draw of the in-app UI raster (nearest-neighbour upscale). */
+  private encodeUiPass(encoder: GPUCommandEncoder, swapView: GPUTextureView, ui: UiOverlayFrame): void {
+    if (ui.width <= 0 || ui.height <= 0 || ui.rgba.length < ui.width * ui.height * 4) return;
+    this.ensureUiTexture(ui.width, ui.height);
+    const texture = this.uiTexture;
+    const view = this.uiTextureView;
+    if (!texture || !view) return;
+
+    this.device.queue.writeTexture(
+      { texture },
+      ui.rgba,
+      { bytesPerRow: ui.width * 4, rowsPerImage: ui.height },
+      { width: ui.width, height: ui.height, depthOrArrayLayers: 1 },
+    );
+    // OverlayParams: ndc_rect (full screen), uv_rect (full texture), color (white), flags (textured, alpha 1).
+    this.uiParamScratch.set([-1, -1, 2, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]);
+    this.device.queue.writeBuffer(this.uiUniformBuffer, 0, this.uiParamScratch);
+
+    const bindGroup = this.device.createBindGroup({
+      layout: this.overlayBindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uiUniformBuffer, size: 64 } },
+        { binding: 1, resource: view },
+        { binding: 2, resource: this.nearestClampSampler },
+      ],
+    });
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{ view: swapView, loadOp: "load", storeOp: "store" }],
+    });
+    pass.setPipeline(this.uiPresentPipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.draw(6);
+    pass.end();
+  }
+
+  private ensureUiTexture(width: number, height: number): void {
+    if (this.uiTexture && this.uiTextureWidth === width && this.uiTextureHeight === height) return;
+    this.uiTexture?.destroy();
+    if (this.uiTexture) this.destroyedTextures++;
+    this.uiTexture = this.createTrackedTexture({
+      size: { width, height, depthOrArrayLayers: 1 },
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    this.uiTextureView = this.uiTexture.createView();
+    this.uiTextureWidth = width;
+    this.uiTextureHeight = height;
   }
 
   /**
@@ -958,6 +1055,10 @@ export class WebGpuRenderer {
     this.destroyStaticTextures();
     this.white1x1Tex.destroy();
     this.destroyedTextures++;
+    this.uiTexture?.destroy();
+    this.uiTexture = null;
+    this.uiTextureView = null;
+    this.uiUniformBuffer.destroy();
     this.vertexBuffer.destroy();
     this.uniformBuffer.destroy();
     this.device.destroy();
@@ -1086,6 +1187,39 @@ export class WebGpuRenderer {
       },
       primitive: { topology: "triangle-list" },
     });
+
+    this.uiPresentPipeline = this.device.createRenderPipeline({
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.overlayBindGroupLayout] }),
+      vertex: { module: this.shaderModules.uiOverlay, entryPoint: "vs_main" },
+      fragment: {
+        module: this.shaderModules.uiOverlay,
+        entryPoint: "fs_main",
+        targets: [
+          {
+            format: this.presentationFormat,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+            },
+          },
+        ],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+    this.nearestClampSampler = this.device.createSampler({
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+      magFilter: "nearest",
+      minFilter: "nearest",
+    });
+    this.uiUniformBuffer = this.device.createBuffer({
+      size: 64,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.uiTexture = null;
+    this.uiTextureView = null;
+    this.uiTextureWidth = 0;
+    this.uiTextureHeight = 0;
 
     this.white1x1Tex = this.createTrackedTexture({
       size: { width: 1, height: 1 },

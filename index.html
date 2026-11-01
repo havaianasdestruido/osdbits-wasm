@@ -3,36 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>osdbits-wasm — PlayStation 2 OSDSYS Visual Reconstruction</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
-      }
-      html, body {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        height: 100%;
-        background: #03060f;
-        color: #dbe6ff;
-        overflow: hidden;
-      }
-      #app {
-        position: relative;
-        width: 100%;
-        height: 100%;
-      }
-      #osdbits-canvas {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
-    </style>
+    <meta name="description" content="OSDBITS // WASM: deterministic PS2 OSDSYS visual reconstruction in WebAssembly and WebGPU." />
+    <meta name="theme-color" content="#03060f" />
+    <title>OSDBITS // WASM</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
   </head>
   <body>
     <div id="app" data-app-state="bootstrapping">
-      <canvas id="osdbits-canvas" width="640" height="480" aria-label="OSDSYS 3D Scene Canvas"></canvas>
+      <canvas id="osdbits-canvas" width="640" height="480" aria-label="OSDSYS 3D scene"></canvas>
     </div>
     <script type="module" src="/web/src/main.ts"></script>
   </body>

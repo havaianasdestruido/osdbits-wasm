@@ -25,6 +25,35 @@ import {
   type AspectPresentationMode,
   type RendererResourceStats,
 } from "./webgpuRenderer";
+import type { UiOverlayFrame } from "../ui/pixelRaster";
+
+let uiLayerCanvas: HTMLCanvasElement | null = null;
+let uiLayerContext: CanvasRenderingContext2D | null = null;
+
+/**
+ * Draws an in-app UI raster over the full target canvas with nearest-neighbour scaling
+ * and source-over alpha. Shared by the Canvas 2D renderer and the no-GPU title screen.
+ */
+export function compositeUiRasterOnCanvas2D(target: CanvasRenderingContext2D, ui: UiOverlayFrame): void {
+  if (ui.width <= 0 || ui.height <= 0 || ui.rgba.length < ui.width * ui.height * 4) return;
+  if (!uiLayerCanvas || uiLayerCanvas.width !== ui.width || uiLayerCanvas.height !== ui.height) {
+    uiLayerCanvas = document.createElement("canvas");
+    uiLayerCanvas.width = ui.width;
+    uiLayerCanvas.height = ui.height;
+    uiLayerContext = uiLayerCanvas.getContext("2d");
+  }
+  if (!uiLayerContext || !uiLayerCanvas) return;
+  uiLayerContext.putImageData(new ImageData(new Uint8ClampedArray(ui.rgba), ui.width, ui.height), 0, 0);
+
+  const canvas = target.canvas;
+  target.save();
+  target.setTransform(1, 0, 0, 1, 0, 0);
+  target.globalAlpha = 1;
+  target.globalCompositeOperation = "source-over";
+  target.imageSmoothingEnabled = false;
+  target.drawImage(uiLayerCanvas, 0, 0, canvas.width, canvas.height);
+  target.restore();
+}
 
 export interface Canvas2DRendererOptions {
   canvas: HTMLCanvasElement;
@@ -150,10 +179,15 @@ export class Canvas2DRenderer {
     if (this.canvas.height !== height) this.canvas.height = height;
   }
 
+  /**
+   * Draws one scene frame. The optional in-app UI raster is composited last with smoothing
+   * disabled so the pixel font keeps its hard edges.
+   */
   renderFrame(
     vertexFloats: Float32Array,
     commandWords: Uint32Array,
     _mode: VisualModeName,
+    uiOverlay?: UiOverlayFrame,
   ): void {
     if (this.disposed) return;
 
@@ -221,10 +255,19 @@ export class Canvas2DRenderer {
         case DrawCommandKindId.ApplyMotionBlur:
         case DrawCommandKindId.ApplyMenuZoomBlur:
         case DrawCommandKindId.DrawIllegalTextOverlay:
-          // DOM supplies localized illegal-disc text; GPU-only multi-pass effects are omitted.
+          // Localized illegal-disc text is drawn by the in-app UI layer; GPU-only multi-pass effects are omitted.
           break;
       }
     }
+
+    if (uiOverlay) {
+      this.compositeUiOverlay(uiOverlay);
+    }
+  }
+
+  /** Scales the in-app UI raster over the whole canvas with nearest-neighbour sampling. */
+  private compositeUiOverlay(ui: UiOverlayFrame): void {
+    compositeUiRasterOnCanvas2D(this.context, ui);
   }
 
   async captureScenePixels(): Promise<{ width: number; height: number; rgba: Uint8Array }> {

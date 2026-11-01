@@ -1,0 +1,13 @@
+{
+  "name": "OSDBITS // WASM",
+  "short_name": "OSDBITS",
+  "description": "PlayStation 2 OSDSYS visual reconstruction: deterministic Rust/WebAssembly simulation with a WebGPU renderer.",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#03060f",
+  "theme_color": "#03060f",
+  "icons": [
+    { "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

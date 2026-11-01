@@ -1,5 +1,6 @@
 import "./ui/styles.css";
 import { AudioEngine } from "./audio/audioEngine";
+import { compositeUiRasterOnCanvas2D } from "./renderer/canvas2dRenderer";
 import { WebGpuRenderer } from "./renderer/webgpuRenderer";
 import {
   DEFAULT_FAITHFUL_SETTINGS,
@@ -7,6 +8,7 @@ import {
   StorageManager,
 } from "./storage/storageManager";
 import { OsdbitsApp } from "./ui/osdbitsApp";
+import { logicalSizeForCanvas, PixelRaster } from "./ui/pixelRaster";
 import { WasmSimulationBridge } from "./wasm/bridge";
 
 export {
@@ -36,6 +38,8 @@ export interface OsdbitsHarness {
   storage: StorageManager;
   audio: AudioEngine;
   createRenderer: (resolutionScale?: number) => Promise<WebGpuRenderer>;
+  /** Client-space centre of an in-app UI region (see `OsdbitsApp.uiHitCenter`). */
+  uiHitCenter: (id: string) => { x: number; y: number; enabled: boolean } | null;
 }
 
 declare global {
@@ -64,9 +68,45 @@ export async function loadBootstrapWasm(wasmUrl = "./wasm/osdbits_wasm.wasm"): P
   };
 }
 
+/**
+ * Returns a canvas whose 2D context can be requested. A canvas that already claimed a WebGPU
+ * context cannot hand out a 2D one, so it is swapped for an identical fresh element.
+ */
+function canvasForCanvas2D(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  if (canvas.getContext("2d") !== null || !canvas.parentNode) return canvas;
+  const fresh = canvas.cloneNode(false) as HTMLCanvasElement;
+  canvas.replaceWith(fresh);
+  return fresh;
+}
+
+/** Minimal in-app fatal state: one line on the scene canvas, in the app's own pixel font. */
+function drawFatalMessage(canvas: HTMLCanvasElement, message: string): void {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const size = logicalSizeForCanvas(canvas.width || 640, canvas.height || 480);
+  const raster = new PixelRaster(size.width, size.height);
+  raster.clear();
+  const lines = raster.wrap(`OSDBITS ERROR: ${message}`, size.width - 32, 1);
+  let y = Math.round(size.height / 2 - (lines.length * 9) / 2);
+  for (const line of lines) {
+    raster.textCenter(size.width / 2, y, line, [255, 110, 130, 255]);
+    y += 9;
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+  compositeUiRasterOnCanvas2D(ctx, {
+    width: raster.width,
+    height: raster.height,
+    rgba: raster.rgba,
+  });
+}
+
 async function initBootstrap(): Promise<void> {
   const appEl = document.getElementById("app");
-  const canvasEl = document.getElementById("osdbits-canvas");
+  let canvasEl = document.getElementById("osdbits-canvas");
   if (!appEl || !(canvasEl instanceof HTMLCanvasElement)) return;
 
   try {
@@ -76,6 +116,7 @@ async function initBootstrap(): Promise<void> {
     const app = new OsdbitsApp(appEl, canvasEl, bridge, storage, audio);
 
     await app.initialize();
+    canvasEl = document.getElementById("osdbits-canvas") as HTMLCanvasElement;
 
     window.__osdbitsHarness = {
       app,
@@ -85,12 +126,14 @@ async function initBootstrap(): Promise<void> {
       createRenderer: async (resolutionScale = 1.0) => {
         app.renderer?.dispose();
         app.renderer = null;
+        const target = document.getElementById("osdbits-canvas") as HTMLCanvasElement;
         return WebGpuRenderer.create({
-          canvas: canvasEl,
+          canvas: target,
           resolutionScale,
           aspectMode: "4:3",
         });
       },
+      uiHitCenter: (id: string) => app.uiHitCenter(id),
     };
 
     appEl.dataset.abiMagic = `0x${bridge.abiMagic.toString(16)}`;
@@ -98,8 +141,15 @@ async function initBootstrap(): Promise<void> {
     appEl.dataset.initialMode = app.getLatestSnapshot()?.mode ?? "opening";
     appEl.dataset.appState = "ready";
   } catch (err) {
+    // Fatal: the detail goes to the console; the page shows one line in the app's own style.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[osdbits] fatal startup error:", err);
     appEl.dataset.appState = "error";
-    appEl.dataset.appError = err instanceof Error ? err.message : String(err);
+    appEl.dataset.appError = message;
+    const current = document.getElementById("osdbits-canvas");
+    if (current instanceof HTMLCanvasElement) {
+      drawFatalMessage(canvasForCanvas2D(current), "SCENE FAILED TO START. SEE CONSOLE.");
+    }
   }
 }
 
